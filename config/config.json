@@ -1,0 +1,39 @@
+{
+    "pid": {
+        "kp": 0.8,
+        "ki": 0,
+        "kd": 1.2,
+        "output_limit": 15,
+        "error_offset": 25,
+        "output_offset": 80
+    },
+    "servo": {
+        "center_position": 74,
+        "max_offset": 69
+    },
+    "gimbal": {
+        "horizontal_center": 74,
+        "vertical_center": 20
+    },
+    "vision": {
+        "garage": {
+            "line_detection": {
+                "line_threshold": 60,
+                "min_line_length": 30,
+                "max_line_gap": 50
+            },
+            "angle": {
+                "horizontal_angle_threshold": 15,
+                "vertical_angle_threshold": 20
+            },
+            "canny": {
+                "threshold1": 50,
+                "threshold2": 150
+            }
+        },
+        "wait_time": 0
+    },
+    "motor": {
+        "target_speed": 1000
+    }
+}
