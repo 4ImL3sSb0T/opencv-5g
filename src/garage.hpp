@@ -45,13 +45,16 @@ namespace Garage
     // inline std::pair<double, cv::Point> car_top_line;
     // inline std::pair<double, cv::Point> car_bottom_line;
 
-    inline std::deque<std::pair<double, cv::Point>> mid_lines;
-    inline std::deque<std::pair<double, cv::Point>> top_lines;
-    inline std::deque<std::pair<double, cv::Point>> button_lines;
+    inline std::deque<std::pair<double, cv::Point2f>> mid_lines;
+    inline std::deque<std::pair<double, cv::Point2f>> top_lines;
+    inline std::deque<std::pair<double, cv::Point2f>> button_lines;
 
-    inline std::pair<double, cv::Point> mid_line;
-    inline std::pair<double, cv::Point> top_line;
-    inline std::pair<double, cv::Point> button_line;
+    inline std::pair<double, cv::Point2f> mid_line;
+    inline std::pair<double, cv::Point2f> top_line;
+    inline std::pair<double, cv::Point2f> button_line;
+
+    // 滑动窗口滤波：固定窗口大小为5
+    inline constexpr size_t window_size = 5;
 
     inline bool initGarage() {
         const auto ret = Config::load_config("../config/config.json");
@@ -93,7 +96,7 @@ namespace Garage
         return STRAIGHT;
     }
 
-    inline void drawLine(const cv::Mat& draw_frame, const std::pair<double, cv::Point> line, const cv::Scalar& color = cv::Scalar(0, 255, 0)) {
+    inline void drawLine(const cv::Mat& draw_frame, const std::pair<double, cv::Point2f> line, const cv::Scalar& color = cv::Scalar(0, 255, 0)) {
         const double theta = line.first * CV_PI / 180.0f;
         const double dx = std::cosf(theta);
         const double dy = std::sinf(theta);
@@ -168,25 +171,27 @@ namespace Garage
         // 	                  return mid_pos_x_a < mid_pos_x_b;
         //                   });
         cv::Point2f horizontal_sum_pos = {0, 0};
-        double horizontal_sum_k = 0.0f;
 
         cv::Point2f vertical_sum_pos = {0, 0};
-        double vertical_sum_k = 0.0f;
 
         if (!horizontal_lines.empty()) {
-            for (const auto& line : horizontal_lines) {
-                horizontal_sum_pos.x += line.second.x;
-                horizontal_sum_pos.y += line.second.y;
-                horizontal_sum_k += std::abs(line.first);
+            double horizontal_sum_k = 0.0f;
+            for (const auto& [fst, snd] : horizontal_lines) {
+                horizontal_sum_pos.x += snd.x;
+                horizontal_sum_pos.y += snd.y;
+                horizontal_sum_k += std::abs(fst);
             }
             cv::Point2f horizontal_avg_pos = {
                 horizontal_sum_pos.x / horizontal_lines.size(), horizontal_sum_pos.y / horizontal_lines.size()
             };
             auto horizontal_avg_k = horizontal_sum_k / horizontal_lines.size();
+
+            // TODO: 分为车库上端和下端
             drawLine(draw_frame, std::make_pair(horizontal_avg_k, horizontal_avg_pos));
         }
 
         if (!vertical_lines.empty()) {
+            double vertical_sum_k = 0.0f;
             for (const auto& [fst, snd] : vertical_lines) {
                 vertical_sum_pos.x += snd.x;
                 vertical_sum_pos.y += snd.y;
@@ -203,19 +208,30 @@ namespace Garage
             vertical_avg_pos, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 0));
             cv::circle(draw_frame, vertical_avg_pos, 5, cv::Scalar(0, 255, 255), -1);
 
-            if (mid_lines.size() > 5) {
+
+            if (mid_lines.size() >= window_size) {
                 mid_lines.pop_front();
             }
             mid_lines.emplace_back(vertical_avg_k, vertical_avg_pos);
+        }
 
-            for (const auto& [fst, snd] : mid_lines) {
-                mid_line.first += fst;
-                mid_line.second += snd;
+        // 计算滑动均值并绘制（即使当前帧没有检测到垂直线，也能显示之前的结果）
+        if (!mid_lines.empty()) {
+            // 使用局部变量进行累加，避免累积错误
+            double sum_k = 0.0;
+            cv::Point2f sum_pos(0.0f, 0.0f);
+            
+            for (const auto& [k, pos] : mid_lines) {
+                sum_k += k;
+                sum_pos.x += pos.x;
+                sum_pos.y += pos.y;
             }
-            mid_line.first /= mid_lines.size();
-            // 我也不知道为什么要加一才是正常的数据
-            mid_line.second.x /= mid_lines.size() + 1;
-            mid_line.second.y /= mid_lines.size() + 1;
+            
+            const size_t count = mid_lines.size();
+            mid_line.first = sum_k / count;
+            mid_line.second.x = sum_pos.x / count;
+            mid_line.second.y = sum_pos.y / count;
+            
             cv::circle(draw_frame, mid_line.second, 5, cv::Scalar(0, 0, 255), -1);
             drawLine(draw_frame, mid_line, cv::Scalar(255, 0, 255));
         }
