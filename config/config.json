@@ -19,12 +19,12 @@
         "garage": {
             "line_detection": {
                 "line_threshold": 60,
-                "min_line_length": 55,
+                "min_line_length": 50,
                 "max_line_gap": 50
             },
             "angle": {
                 "horizontal_angle_threshold": 15,
-                "vertical_angle_threshold": 55
+                "vertical_angle_threshold": 25
             },
             "canny": {
                 "threshold1": 50,
@@ -32,12 +32,12 @@
             },
             "hsv": {
                 "yellow": {
-                    "low": [13, 30, 30],
-                    "high": [77, 255, 240]
+                    "low": [18, 64, 126],
+                    "high": [57, 255, 240]
                 }
             }
         },
-        "wait_time": 0,
+        "wait_time": 1,
         "path": "../img/WIN_20251103_21_24_35_Pro.mp4"
     },
     "motor": {

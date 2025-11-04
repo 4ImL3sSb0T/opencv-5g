@@ -41,6 +41,18 @@ namespace Garage
 
     inline int wait_time = 30;
 
+    inline auto yellow_color = cv::Scalar(0, 255, 255);
+    inline auto blue_color = cv::Scalar(255, 0, 0);
+    inline auto red_color = cv::Scalar(0, 0, 255);
+    inline auto green_color = cv::Scalar(0, 255, 0);
+    inline auto white_color = cv::Scalar(255, 255, 255);
+    inline auto black_color = cv::Scalar(0, 0, 0);
+    inline auto orange_color = cv::Scalar(0, 165, 255);
+    inline auto purple_color = cv::Scalar(128, 0, 128);
+    inline auto pink_color = cv::Scalar(255, 192, 203);
+    inline auto brown_color = cv::Scalar(42, 42, 165);
+    inline auto gray_color = cv::Scalar(128, 128, 128);
+
     // inline std::pair<double, cv::Point> car_left_line;
     // inline std::pair<double, cv::Point> car_right_line;
     // inline std::pair<double, cv::Point> car_top_line;
@@ -154,19 +166,21 @@ namespace Garage
             // 同一转换成正角度
             double abs_angle = 0.0f;
             if (angle < 0) abs_angle = 180.0f + angle;
+            else abs_angle = angle;
 
             // 判断是否为水平线 (接近 0° 或 180°)
             if (abs_angle < horizontal_angle_threshold ||
                 abs_angle > (180 - horizontal_angle_threshold)) {
                 horizontal_lines.emplace_back(angle, mid_point);
+                // cv::putText(draw_frame, "angle" + std::to_string(abs_angle), mid_point, cv::FONT_HERSHEY_SIMPLEX, 0.5, pink_color);
                 cv::line(draw_frame, cv::Point(line[0], line[1]), cv::Point(line[2], line[3]),
-                         cv::Scalar(0, 0, 255), 2);
+                         blue_color, 2);
             }
             // 判断是否为垂直线 (接近 90°)
             if (std::abs(abs_angle - 90) < vertical_angle_threshold) {
                 vertical_lines.emplace_back(angle, mid_point);
                 cv::line(draw_frame, cv::Point(line[0], line[1]), cv::Point(line[2], line[3]),
-                         cv::Scalar(0, 255, 255), 2);
+                         orange_color, 2);
             }
 
             // cv::putText(draw_frame, std::to_string(abs_angle) + "abs", mid_point, cv::FONT_HERSHEY_SIMPLEX, 0.5,
@@ -248,11 +262,12 @@ namespace Garage
             mid_line.second.y = sum_pos.y / count;
             
             cv::circle(draw_frame, mid_line.second, 5, cv::Scalar(0, 0, 255), -1);
-            drawLine(draw_frame, mid_line, cv::Scalar(255, 0, 255));
+            drawLine(draw_frame, mid_line, green_color);
         }
 #ifdef _DEBUG
         cv::imshow("Garage", draw_frame);
         cv::imshow("Edges", edges);
+        cv::imshow("color", yellow_mask);
 #endif
 
     }
