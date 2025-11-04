@@ -5,7 +5,20 @@
 int main()
 {
     cv::Mat frame;
-    auto cap = cv::VideoCapture("../img/WIN_20251103_21_26_41_Pro.mp4");
+    if (!Config::load_config("../config/config.json"))
+    {
+        std::cout << "Error loading config.json" << std::endl;
+        return -1;
+    }
+    auto config = Config::get_config();
+    std::string path;
+    try {
+        path = config["vision"]["path"].get<std::string>();
+    } catch (std::exception& e) {
+        std::cout << "Error loading value" << std::endl;
+        return -1;
+    }
+    auto cap = cv::VideoCapture(path);
     // auto cap = cv::VideoCapture(1);
     Garage::initGarage();
     
