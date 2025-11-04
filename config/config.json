@@ -19,19 +19,19 @@
         "garage": {
             "line_detection": {
                 "line_threshold": 60,
-                "min_line_length": 30,
+                "min_line_length": 25,
                 "max_line_gap": 50
             },
             "angle": {
                 "horizontal_angle_threshold": 15,
-                "vertical_angle_threshold": 20
+                "vertical_angle_threshold": 55
             },
             "canny": {
                 "threshold1": 50,
                 "threshold2": 150
             }
         },
-        "wait_time": 0
+        "wait_time": 1
     },
     "motor": {
         "target_speed": 1000
