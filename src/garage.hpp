@@ -1,6 +1,8 @@
 #ifndef __GARAGE_HPP
 #define __GARAGE_HPP
 
+#include <algorithm>
+
 #include "config.hpp"
 #include <opencv2/opencv.hpp>
 #include <spdlog/spdlog.h>
@@ -17,9 +19,9 @@ namespace Garage
 
     enum State
     {
-        SEARCHING,
-        APPROACHING,
-        PARKED,
+        SEARCHING, // 0
+        APPROACHING, // 1
+        PARKED,// 2
     };
     
 
@@ -40,6 +42,9 @@ namespace Garage
     inline cv::Scalar yellow_high;
 
     inline int wait_time = 30;
+
+    inline constexpr int button_line_target_count = 5;
+    inline int current_button_target_count = 0;
 
     inline auto yellow_color = cv::Scalar(0, 255, 255);
     inline auto blue_color = cv::Scalar(255, 0, 0);
@@ -250,8 +255,8 @@ namespace Garage
             double sum_k = 0.0;
             cv::Point2f sum_pos(0.0f, 0.0f);
             
-            for (const auto& [k, pos] : mid_lines) {
-                sum_k += k;
+            for (const auto& [angle, pos] : mid_lines) {
+                sum_k += angle;
                 sum_pos.x += pos.x;
                 sum_pos.y += pos.y;
             }
@@ -264,7 +269,34 @@ namespace Garage
             cv::circle(draw_frame, mid_line.second, 5, cv::Scalar(0, 0, 255), -1);
             drawLine(draw_frame, mid_line, green_color);
         }
+
+        if (horizontal_lines.size() > 4) current_button_target_count++;
+        else current_button_target_count = 0;
+
+        if (current_button_target_count > button_line_target_count && currentState == Garage::SEARCHING) currentState = Garage::APPROACHING;
+
+        auto mid_line_offset = std::fabsf(static_cast<float>(mid_line.second.x - frame.cols)) / frame.cols;
+        spdlog::info("Offest is {}", mid_line_offset);
+        if (mid_line_offset > 0.45) {
+            if (horizontal_lines.size() > 5 && currentState == Garage::APPROACHING) {
+                currentState = Garage::PARKED;
+            }
+        }
+        
 #ifdef _DEBUG
+        switch (currentState) {
+        case Garage::APPROACHING:
+            spdlog::info("APPROACHING");
+            break;
+        case Garage::PARKED:
+            spdlog::info("PARKED");
+            break;
+        case Garage::SEARCHING:
+            spdlog::info("SEARCHING");
+            break;
+        }
+        
+        
         cv::imshow("Garage", draw_frame);
         cv::imshow("Edges", edges);
         cv::imshow("color", yellow_mask);
@@ -276,35 +308,9 @@ namespace Garage
     inline void Update(const cv::Mat& frame) {
         currentDirection = detectDirection(frame);
         processGarageImage(frame);
+#ifdef _DEBUG
         cv::waitKey(wait_time);
-
-        switch (currentState) {
-        case SEARCHING:
-            /* code */
-            break;
-        case APPROACHING:
-            switch (currentDirection) {
-            case LEFT:
-                /* code */
-                break;
-            case RIGHT:
-                /* code */
-                break;
-            case STRAIGHT:
-                /* code */
-                break;
-
-            default:
-                break;
-            }
-            break;
-
-        case PARKED:
-            /* code */
-            break;
-        default:
-            break;
-        }
+#endif
     }
 } // namespace Garage
 
