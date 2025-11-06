@@ -7,9 +7,39 @@
 #include <opencv2/opencv.hpp>
 #include <spdlog/spdlog.h>
 #include <cmath>
+#include <functional>
 
 namespace Garage
 {
+    template<typename T>
+    class CumulativeConditionDector
+    {
+    public:
+        CumulativeConditionDector() = delete;
+        CumulativeConditionDector(const uint32_t times, const T target_value, std::function<bool(T, T)> callback) {
+            callback_ = callback;
+            target_times = times;
+            target_value_ = target_value;
+        }
+        bool detect(const T current_value) {
+            if (callback_(current_value, target_value_)) {
+                current_times++;
+            } else {
+                current_times = 0;
+            }
+
+            if (current_times >= target_times) {
+                current_times = 0;
+                return true;
+            }
+            return false;
+        }
+    private:
+        uint32_t current_times = 0;
+        uint32_t target_times = 0;
+        std::function<bool(T, T)> callback_;
+        T target_value_;
+    };
     enum Direction
     {
         LEFT,
@@ -64,12 +94,17 @@ namespace Garage
     // inline std::pair<double, cv::Point> car_bottom_line;
 
     inline std::deque<std::pair<double, cv::Point2f>> mid_lines;
-    inline std::deque<std::pair<double, cv::Point2f>> top_lines;
-    inline std::deque<std::pair<double, cv::Point2f>> button_lines;
+    inline std::vector<std::pair<double, cv::Point2f>> top_lines;
+    inline std::vector<std::pair<double, cv::Point2f>> button_lines;
 
     inline std::pair<double, cv::Point2f> mid_line;
     inline std::pair<double, cv::Point2f> top_line;
     inline std::pair<double, cv::Point2f> button_line;
+
+    inline bool isFirstDectectHorizLine = false;
+    inline bool finalParked = false;
+    inline auto close_time_duration = std::chrono::seconds(10);
+    inline std::chrono::steady_clock::time_point start_time_point;
 
     // 滑动窗口滤波：固定窗口大小为5
     inline constexpr size_t window_size = 5;
@@ -89,6 +124,9 @@ namespace Garage
 
             canny_threshold1 = cfg["vision"]["garage"]["canny"]["threshold1"].get<double>();
             canny_threshold2 = cfg["vision"]["garage"]["canny"]["threshold2"].get<double>();
+
+            auto cloase_time = cfg["vision"]["garage"]["close_time"].get<int>();
+            close_time_duration = std::chrono::seconds(cloase_time);
 
             auto yellow_low_array = cfg["vision"]["garage"]["hsv"]["yellow"]["low"];
             auto yellow_high_array = cfg["vision"]["garage"]["hsv"]["yellow"]["high"];
@@ -270,18 +308,42 @@ namespace Garage
             drawLine(draw_frame, mid_line, green_color);
         }
 
-        if (horizontal_lines.size() > 4) current_button_target_count++;
-        else current_button_target_count = 0;
+        auto mid_line_offset = std::fabsf(static_cast<float>(frame.cols - mid_line.second.x)) / frame.cols;
+        cv::Point2f horizontal_avg_pos = {
+            horizontal_sum_pos.x / horizontal_lines.size(), horizontal_sum_pos.y / horizontal_lines.size()
+        };
 
-        if (current_button_target_count > button_line_target_count && currentState == Garage::SEARCHING) currentState = Garage::APPROACHING;
+        if (isFirstDectectHorizLine == false && (horizontal_lines.size() > 3)) {
+            currentState = Garage::APPROACHING;
+            start_time_point = std::chrono::steady_clock::now();
+            isFirstDectectHorizLine = true;
+        }
 
-        auto mid_line_offset = std::fabsf(static_cast<float>(mid_line.second.x - frame.cols)) / frame.cols;
-        spdlog::info("Offest is {}", mid_line_offset);
-        if (mid_line_offset > 0.45) {
-            if (horizontal_lines.size() > 5 && currentState == Garage::APPROACHING) {
-                currentState = Garage::PARKED;
+        if (isFirstDectectHorizLine == true) {
+            auto current_time_point = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time_point - start_time_point);
+            if (elapsed >= close_time_duration) {
+                finalParked = true;
             }
         }
+
+        if (finalParked == true && horizontal_avg_pos.y > 450 && currentState == Garage::APPROACHING) {
+            currentState = Garage::PARKED;
+        }
+
+        // if (horizontal_lines.size() > 4) current_button_target_count++;
+        // else current_button_target_count = 0;
+        //
+        // if (current_button_target_count > button_line_target_count && currentState == Garage::SEARCHING) currentState = Garage::APPROACHING;
+        //
+
+        // spdlog::info("horizontal_avg_pos is {}", horizontal_avg_pos.y);
+        // spdlog::info("Offest is {}", mid_line_offset);
+        // if (mid_line_offset < 0.25 && currentState == Garage::APPROACHING) {
+        //     if (horizontal_lines.size() > 5 && horizontal_avg_pos.y > 450.0f) {
+        //         currentState = Garage::PARKED;
+        //     }
+        // }
         
 #ifdef _DEBUG
         switch (currentState) {
