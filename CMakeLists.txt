@@ -6,7 +6,8 @@ set(CMAKE_CXX_STANDARD 20)
 find_package(OpenCV REQUIRED)
 find_package(spdlog REQUIRED)
 
-add_executable(opencv_5g src/main.cpp src/json.hpp src/config.hpp src/garage.hpp)
+add_executable(opencv_5g src/main.cpp src/json.hpp src/config.hpp src/garage.hpp
+        src/guided.h)
 add_executable(line_detection src/line_detection.cpp)
 
 target_link_libraries(opencv_5g ${OpenCV_LIBS}

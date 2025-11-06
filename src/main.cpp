@@ -18,8 +18,22 @@ int main()
         std::cout << "Error loading value" << std::endl;
         return -1;
     }
-    auto cap = cv::VideoCapture(path);
-    // auto cap = cv::VideoCapture(1);
+
+    cv::VideoCapture cap;
+    if (path == "video0") {
+        cap = cv::VideoCapture(0);
+    } else if (path == "video1") {
+        cap = cv::VideoCapture(1);
+    } else if (path == "video2") {
+        cap = cv::VideoCapture(2);
+    } else {
+        cap = cv::VideoCapture(path);
+    }
+    
+    if (!cap.isOpened()) {
+        std::cout << "Error opening video stream or file" << std::endl;
+        return -1;
+    }
     Garage::initGarage();
     
     // 创建HSV滑条窗口并初始化
