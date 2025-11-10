@@ -42,7 +42,7 @@
             
         },
         "wait_time": 0,
-        "path": "../img/garage_hd_left.mp4"
+        "path": "../img/guided_left.mp4"
     },
     "motor": {
         "target_speed": 1000
