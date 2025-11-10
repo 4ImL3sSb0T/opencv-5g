@@ -23,7 +23,7 @@
                 "max_line_gap": 50
             },
             "angle": {
-                "horizontal_angle_threshold": 15,
+                "horizontal_angle_threshold": 25,
                 "vertical_angle_threshold": 60
             },
             "canny": {
@@ -33,16 +33,16 @@
             "hsv": {
                 "yellow": {
                     "low": [18, 64, 126],
-                    "high": [57, 255, 240]
+                    "high": [57, 255, 245]
                 }
             },
-            "close_time": 15
+            "close_time": 5
         }, 
         "guided": {
             
         },
-        "wait_time": 1,
-        "path": "../img/WIN_20251103_21_26_41_Pro.mp4"
+        "wait_time": 0,
+        "path": "../img/garage_hd_left.mp4"
     },
     "motor": {
         "target_speed": 1000

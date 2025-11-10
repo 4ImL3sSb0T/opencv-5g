@@ -168,8 +168,8 @@ namespace Garage
 
     inline void drawLine(const cv::Mat& draw_frame, const std::pair<double, cv::Point2f> line, const cv::Scalar& color = cv::Scalar(0, 255, 0)) {
         const double theta = line.first * CV_PI / 180.0f;
-        const double dx = std::cosf(theta);
-        const double dy = std::sinf(theta);
+        const double dx = std::cos(theta);
+        const double dy = std::sin(theta);
 
         constexpr double length = 3000.f;
 
@@ -324,10 +324,11 @@ namespace Garage
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time_point - start_time_point);
             if (elapsed >= close_time_duration) {
                 finalParked = true;
+                spdlog::info("Final Parked Detected!");
             }
         }
 
-        if (finalParked == true && horizontal_avg_pos.y > 450 && currentState == Garage::APPROACHING) {
+        if (finalParked == true && horizontal_avg_pos.y > frame.rows / 2 && currentState == Garage::APPROACHING) {
             currentState = Garage::PARKED;
         }
 
