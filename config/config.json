@@ -1,50 +1,59 @@
 {
-    "pid": {
-        "kp": 0.8,
-        "ki": 0,
-        "kd": 1.2,
-        "output_limit": 15,
-        "error_offset": 25,
-        "output_offset": 80
+  "pid": {
+    "kp": 0.8,
+    "ki": 0,
+    "kd": 1.2,
+    "output_limit": 15,
+    "error_offset": 25,
+    "output_offset": 80
+  },
+  "servo": {
+    "center_position": 74,
+    "max_offset": 69
+  },
+  "gimbal": {
+    "horizontal_center": 74,
+    "vertical_center": 20
+  },
+  "vision": {
+    "garage": {
+      "line_detection": {
+        "line_threshold": 50,
+        "min_line_length": 45,
+        "max_line_gap": 50
+      },
+      "angle": {
+        "horizontal_angle_threshold": 15,
+        "vertical_angle_threshold": 60
+      },
+      "canny": {
+        "threshold1": 50,
+        "threshold2": 150
+      },
+      "hsv": {
+        "yellow": {
+          "low": [15, 80, 120],
+          "high": [35, 255, 255]
+        }
+      },
+      "close_time": 15
     },
-    "servo": {
-        "center_position": 74,
-        "max_offset": 69
+    "cone_detection": {
+      "min_area": 100,
+      "max_area": 50000,
+      "area_ratio_min": 0.3,
+      "area_ratio_max": 3.0,
+      "tracking_distance_threshold": 50,
+      "max_disappeared_frames": 10,
+      "id_assignment_mode": "continuous"
     },
-    "gimbal": {
-        "horizontal_center": 74,
-        "vertical_center": 20
+    "guided": {
+
     },
-    "vision": {
-        "garage": {
-            "line_detection": {
-                "line_threshold": 50,
-                "min_line_length": 45,
-                "max_line_gap": 50
-            },
-            "angle": {
-                "horizontal_angle_threshold": 25,
-                "vertical_angle_threshold": 60
-            },
-            "canny": {
-                "threshold1": 50,
-                "threshold2": 150
-            },
-            "hsv": {
-                "yellow": {
-                    "low": [18, 64, 126],
-                    "high": [57, 255, 245]
-                }
-            },
-            "close_time": 5
-        }, 
-        "guided": {
-            
-        },
-        "wait_time": 0,
-        "path": "../img/guided_left.mp4"
-    },
-    "motor": {
-        "target_speed": 1000
-    }
+    "wait_time": 1,
+    "path": "../img/left.mp4"
+  },
+  "motor": {
+    "target_speed": 1000
+  }
 }
