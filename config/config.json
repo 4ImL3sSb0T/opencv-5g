@@ -51,7 +51,7 @@
 
     },
     "wait_time": 1,
-    "path": "../img/right.mp4"
+    "path": "../img/left.mp4"
   },
   "motor": {
     "target_speed": 1000

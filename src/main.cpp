@@ -120,7 +120,7 @@ int main()
         auto display_frame = frame.clone();
         ConeDetector::drawDetectedCones(display_frame, false);  // 不显示详细信息，避免干扰Garage检测
         
-        Garage::Update(frame);
+        // Garage::Update(frame);
         
         // 按键处理 - 暂停时使用较短延迟以保证响应性，播放时使用配置的延迟
         auto waitKeyTime = isPaused ? 10 : Garage::wait_time;

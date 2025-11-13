@@ -173,6 +173,9 @@ namespace ConeDetector {
         cv::Mat hsv, mask;
         cv::cvtColor(frame, hsv, cv::COLOR_BGR2HSV);
         cv::inRange(hsv, detection_params.hsv_low, detection_params.hsv_high, mask);
+#ifdef _DEBUG
+        cv::imshow("mask", mask);
+#endif
 
         // 形态学操作
         cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE,

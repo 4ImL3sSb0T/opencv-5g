@@ -30,6 +30,8 @@ extern int stopbanma;
 extern int banmaenable;//2是不允许，1是允许
 extern int bizhangenable;
 extern int yellowenable;
+extern int cone_guidance_enable;
+void setConeGuidanceMode(int enable);
 //=====>>>>>>>>>>>>>
 int16 Limit_Protect(int16 num, int32 min, int32 max);
 int16 Fit_Point(uint8 i, float Ka, float Kb);

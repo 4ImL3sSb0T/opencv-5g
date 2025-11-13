@@ -3,7 +3,7 @@
 #include <numeric>
 #include <opencv2/opencv.hpp>
 #include <string>
-
+#include "cone_detector.hpp"
 // 全局变量定义
 int car_speed = setspeed1; // 车辆速度，初始值来自serial.h
 int banmaxian_Y = 0;       // 检测到的斑马线Y坐标
@@ -47,6 +47,18 @@ int saidao = 0;     // 赛道图像显示标志1
 int saidao1 = 0;    // 赛道图像显示标志2
 int banma111 = 0;   // 斑马线检测图像显示标志1
 int banma222 = 0;   // 斑马线检测图像显示标志2
+
+int cone_guidance_enable = 0;
+static cv::Rect cone_guidance_roi;
+static double cone_guidance_scale_x = 1.0;
+static double cone_guidance_scale_y = 1.0;
+static int cone_guidance_track_cols = 0;
+static int cone_guidance_track_rows = 0;
+static bool cone_guidance_context_valid = false;
+
+void setConeGuidanceMode(int enable) {
+  cone_guidance_enable = enable;
+}
 
 /*-------------------------------------------------------------------------------------------------------------------
  * @brief   限幅保护函数
@@ -232,8 +244,16 @@ void Earge_Search_Mid(int16 i, cv::Mat data, int16 Mid, int16 Left_Min,
     avg_width = 150; // 如果没有有效历史数据，使用默认宽度
 
   /*左边线查找*/
+  // 检查行号是否有效
+  if (i < 0 || i >= data.rows) {
+    return;
+  }
   for (j = Mid; j >= 10; j -= 4) // 以前一行中点为起点向左查找边界
   {
+    // 边界检查：确保 j, j-4, j-8 都在有效范围内
+    if (j - 8 < 0 || j >= data.cols) {
+      continue;
+    }
     if ((data.at<uchar>(i, j) < 100) && (data.at<uchar>(i, j - 4) < 100) &&
         (data.at<uchar>(i, j - 8) > 100)) /*黑白跳变判断*/
     {
@@ -251,6 +271,10 @@ void Earge_Search_Mid(int16 i, cv::Mat data, int16 Mid, int16 Left_Min,
   /*右边线查找*/
   for (j = Mid; j <= COL - 10; j += 4) // 以前一行中点为起点向右查找右边界
   {
+    // 边界检查：确保 j, j+4, j+8 都在有效范围内
+    if (j + 8 >= data.cols || j < 0) {
+      continue;
+    }
     if ((data.at<uchar>(i, j) < 100) && (data.at<uchar>(i, j + 4) < 100) &&
         (data.at<uchar>(i, j + 8) > 100)) {
       if (j <= 320 / 2 - 50) // 如果在图像左半边找到了右边界，可能是干扰
@@ -338,6 +362,117 @@ void LinearInterpolation(void) {
     Mid_Line[i - 2] = Interpolated_Liness[i];
   }
 }
+
+static void applyConeGuidanceMidLine() {
+  if (!cone_guidance_enable || !cone_guidance_context_valid) {
+    return;
+  }
+
+  const auto &cone_path = ConeDetector::getLinePath();
+  if (cone_path.size() < 2) {
+    return;
+  }
+
+  const int valid_min_row = 9;
+  const int valid_max_row = ROW - 1;
+  if (valid_max_row <= valid_min_row) {
+    return;
+  }
+
+  std::vector<int> row_sum(ROW + 2, 0);
+  std::vector<int> row_count(ROW + 2, 0);
+  std::vector<int> override_mid(ROW + 2, -1);
+
+  const double sx = cone_guidance_scale_x;
+  const double sy = cone_guidance_scale_y;
+
+  int max_x_bound = COL - 1;
+  if (cone_guidance_track_cols > 0) {
+    max_x_bound =
+        std::min(max_x_bound, cone_guidance_track_cols - 1);
+  }
+  if (max_x_bound <= 1) {
+    return;
+  }
+
+  for (const auto &pt : cone_path) {
+    if (pt.x < cone_guidance_roi.x ||
+        pt.x >= cone_guidance_roi.x + cone_guidance_roi.width ||
+        pt.y < cone_guidance_roi.y ||
+        pt.y >= cone_guidance_roi.y + cone_guidance_roi.height) {
+      continue;
+    }
+
+    double local_x = (pt.x - cone_guidance_roi.x) * sx;
+    double local_y = (pt.y - cone_guidance_roi.y) * sy;
+
+    if (local_x < 0.0 || local_y < 0.0) {
+      continue;
+    }
+    if (cone_guidance_track_cols > 0 &&
+        local_x > static_cast<double>(cone_guidance_track_cols - 1)) {
+      continue;
+    }
+    if (cone_guidance_track_rows > 0 &&
+        local_y > static_cast<double>(cone_guidance_track_rows - 1)) {
+      continue;
+    }
+
+    int row_idx = static_cast<int>(std::round(local_y));
+    if (row_idx < valid_min_row || row_idx > valid_max_row) {
+      continue;
+    }
+    // 额外检查数组边界
+    if (row_idx < 0 || row_idx >= static_cast<int>(ROW + 2)) {
+      continue;
+    }
+
+    int mid_value = static_cast<int>(std::round(local_x));
+    mid_value =
+        Limit_Protect(static_cast<int16>(mid_value), 1, max_x_bound);
+
+    row_sum[row_idx] += mid_value;
+    row_count[row_idx] += 1;
+  }
+
+  bool has_override = false;
+  for (int row = valid_min_row; row <= valid_max_row; ++row) {
+    if (row_count[row] > 0) {
+      override_mid[row] = row_sum[row] / row_count[row];
+      has_override = true;
+    }
+  }
+
+  if (!has_override) {
+    return;
+  }
+
+  int last = -1;
+  for (int row = valid_min_row; row <= valid_max_row; ++row) {
+    if (override_mid[row] >= 0) {
+      last = override_mid[row];
+    } else if (last >= 0) {
+      override_mid[row] = last;
+    }
+  }
+
+  last = -1;
+  for (int row = valid_max_row; row >= valid_min_row; --row) {
+    if (override_mid[row] >= 0) {
+      last = override_mid[row];
+    } else if (last >= 0) {
+      override_mid[row] = last;
+    }
+  }
+
+  for (int row = valid_min_row; row <= valid_max_row; ++row) {
+    if (override_mid[row] >= 0) {
+      Mid_Line[row] =
+          Limit_Protect(static_cast<int16>(override_mid[row]), 1, max_x_bound);
+    }
+  }
+  auto temp = Mid_Line;
+}
 // 创建视频写入对象，用于录制处理过程
 cv::VideoWriter writer("output288.avi",
                        cv::VideoWriter::fourcc('X', 'V', 'I', 'D'), 60,
@@ -372,16 +507,45 @@ int left_valid_count;  // 左边界有效点计数
  */
 int TUxiang_Init(cv::Mat data) // 图像预处理
 {
+  if (cone_guidance_enable) {
+    ConeDetector::detectCones(data);
+  }
+  cone_guidance_context_valid = false;
   // 1. 图像裁剪与缩放
+  if (data.empty() || data.rows <= 0 || data.cols <= 0) {
+    std::cout << "Input image is empty or invalid!" << std::endl;
+    return 0;
+  }
   banmachuli = data; // 备份原始图像给斑马线处理
   cv::resize(banmachuli, banmachuli, cv::Size(), 0.5, 0.5); // 缩放备份图像
-  cv::Rect roi_rect(0, (data.rows / 2 - 90 + 70), data.cols,
-                    (data.rows / 2.5));   // 定义感兴趣区域(ROI)，提取赛道部分
+  // 计算ROI，确保不越界
+  int roi_y = (data.rows / 2 - 90 + 70);
+  int roi_height = static_cast<int>(data.rows / 2.5);
+  if (roi_y < 0) roi_y = 0;
+  if (roi_y + roi_height > data.rows) roi_height = data.rows - roi_y;
+  if (roi_height <= 0) {
+    std::cout << "Invalid ROI height!" << std::endl;
+    return 0;
+  }
+  cv::Rect roi_rect(0, roi_y, data.cols, roi_height);   // 定义感兴趣区域(ROI)，提取赛道部分
   cv::Mat cropped_image = data(roi_rect); // 裁剪图像
   cropped_imageddddd = cropped_image;     // 全局备份裁剪后的图像
   if (!cropped_image.empty()) {
     cv::resize(cropped_image, cropped_image, cv::Size(), 0.5,
                0.5); // 缩放裁剪后的图像以提高处理速度
+    cone_guidance_track_cols = cropped_image.cols;
+    cone_guidance_track_rows = cropped_image.rows;
+    cone_guidance_roi = roi_rect;
+    if (cone_guidance_track_cols > 0 && cone_guidance_track_rows > 0 &&
+        roi_rect.width > 0 && roi_rect.height > 0) {
+      cone_guidance_scale_x =
+          static_cast<double>(cone_guidance_track_cols) /
+          static_cast<double>(roi_rect.width);
+      cone_guidance_scale_y =
+          static_cast<double>(cone_guidance_track_rows) /
+          static_cast<double>(roi_rect.height);
+      cone_guidance_context_valid = true;
+    }
   } else {
     std::cout << "Cropped image is empty!" << std::endl;
     return 0; // 如果裁剪失败则返回
@@ -620,6 +784,7 @@ int Image_Handle22(cv::Mat data, cv::Mat YUANTU, cv::Mat BANMA) {
   }
 
   /***************************** 误差计算 **************************/
+  applyConeGuidanceMidLine();
   LinearInterpolation();     // 再次平滑可能被避障逻辑修改过的中线
   errroer_car = error_get(); // 计算加权误差
   return (errroer_car);
@@ -1072,12 +1237,25 @@ int BanMa_Find(cv::Mat BanMa_Find_data) {
  */
 int CAR_STOP(cv::Mat yellow_Find_data) {
   int yellowPoint_num = 0;
-  // 在图像底部 30x289 的区域内扫描
-  for (int i = 95; i >= 95 - 30; i -= 1) {
-    for (int j = 319 - 30; j >= 30; j -= 2) {
-      if (yellow_Find_data.at<uchar>(i, j) > 100) // 如果是黄色像素
-      {
-        yellowPoint_num++;
+  // 检查图像有效性
+  if (yellow_Find_data.empty() || yellow_Find_data.rows <= 0 || yellow_Find_data.cols <= 0) {
+    return 0;
+  }
+  // 在图像底部 30x289 的区域内扫描，确保不越界
+  int start_row = yellow_Find_data.rows - 1;
+  int end_row = start_row - 30;
+  if (end_row < 0) end_row = 0;
+  int start_col = yellow_Find_data.cols - 1;
+  int end_col = 30;
+  if (end_col >= start_col) end_col = start_col - 1;
+  
+  for (int i = start_row; i >= end_row; i -= 1) {
+    for (int j = start_col; j >= end_col; j -= 2) {
+      if (i >= 0 && i < yellow_Find_data.rows && j >= 0 && j < yellow_Find_data.cols) {
+        if (yellow_Find_data.at<uchar>(i, j) > 100) // 如果是黄色像素
+        {
+          yellowPoint_num++;
+        }
       }
     }
   }
@@ -1117,3 +1295,134 @@ void UI_init(void) {
   createTrackbar("banma111 ", "TrackBars", &banma111, 1, onTrackbar);
   createTrackbar("banma222 ", "TrackBars", &banma222, 1, onTrackbar);
 }
+
+#ifdef _DEBUG
+// #include <windows.h>
+#include "config.hpp"
+#include "garage.hpp"
+int main() {
+  cv::Mat frame, draw;
+  if (!Config::load_config("../config/config.json"))
+  {
+    std::cout << "Error loading config.json" << std::endl;
+    return -1;
+  }
+  auto config = Config::get_config();
+  std::string path;
+  try {
+    path = config["vision"]["path"].get<std::string>();
+  } catch (std::exception& e) {
+    std::cout << "Error loading value" << std::endl;
+    return -1;
+  }
+
+  cv::VideoCapture cap;
+  if (path == "video0") {
+    cap = cv::VideoCapture(0);
+  } else if (path == "video1") {
+    cap = cv::VideoCapture(1);
+  } else if (path == "video2") {
+    cap = cv::VideoCapture(2);
+  } else {
+    cap = cv::VideoCapture(path);
+  }
+
+  if (!cap.isOpened()) {
+    std::cout << "Error opening video stream or file" << std::endl;
+    return -1;
+  }
+  Garage::initGarage();
+
+  // 从配置文件读取锥桶检测参数（重用已有的 config 对象）
+  double cone_min_area = config["vision"]["cone_detection"]["min_area"].get<double>();
+  double cone_max_area = config["vision"]["cone_detection"]["max_area"].get<double>();
+  double tracking_distance = config["vision"]["cone_detection"]["tracking_distance_threshold"].get<double>();
+  int max_disappeared = config["vision"]["cone_detection"]["max_disappeared_frames"].get<int>();
+
+  // 初始化锥桶检测器
+  ConeDetector::initConeDetector(Garage::yellow_low, Garage::yellow_high, cone_min_area, cone_max_area);
+  ConeDetector::detection_params.tracking_distance_threshold = tracking_distance;
+  ConeDetector::detection_params.max_disappeared_frames = max_disappeared;
+
+  std::cout << "Cone Detection Initialized:" << std::endl;
+  std::cout << "  Min Area: " << cone_min_area << " px²" << std::endl;
+  std::cout << "  Max Area: " << cone_max_area << " px²" << std::endl;
+  std::cout << "  Tracking Distance Threshold: " << tracking_distance << " px" << std::endl;
+  std::cout << "  Max Disappeared Frames: " << max_disappeared << std::endl;
+
+  // cv::namedWindow("HSV Controls", cv::WINDOW_AUTOSIZE);
+  // int lowH = static_cast<int>(Garage::yellow_low[0]);
+  // int lowS = static_cast<int>(Garage::yellow_low[1]);
+  // int lowV = static_cast<int>(Garage::yellow_low[2]);
+  // int highH = static_cast<int>(Garage::yellow_high[0]);
+  // int highS = static_cast<int>(Garage::yellow_high[1]);
+  // int highV = static_cast<int>(Garage::yellow_high[2]);
+  //
+  // cv::createTrackbar("Low H",  "HSV Controls", &lowH, 179);
+  // cv::createTrackbar("Low S",  "HSV Controls", &lowS, 255);
+  // cv::createTrackbar("Low V",  "HSV Controls", &lowV, 255);
+  // cv::createTrackbar("High H", "HSV Controls", &highH, 179);
+  // cv::createTrackbar("High S", "HSV Controls", &highS, 255);
+  // cv::createTrackbar("High V", "HSV Controls", &highV, 255);
+  // SetConsoleOutputCP(65001);
+  std::locale::global(std::locale("zh_CN.UTF-8"));
+
+  setConeGuidanceMode(1);
+  bool isPaused = false;
+  while (true) {
+    cap >> frame;
+    if (frame.empty()) {
+      break;
+    }
+    // int curLowH  = cv::getTrackbarPos("Low H",  "HSV Controls");
+    // int curLowS  = cv::getTrackbarPos("Low S",  "HSV Controls");
+    // int curLowV  = cv::getTrackbarPos("Low V",  "HSV Controls");
+    // int curHighH = cv::getTrackbarPos("High H", "HSV Controls");
+    // int curHighS = cv::getTrackbarPos("High S", "HSV Controls");
+    // int curHighV = cv::getTrackbarPos("High V", "HSV Controls");
+    //
+    // int lH = std::min(curLowH,  curHighH);
+    // int hH = std::max(curLowH,  curHighH);
+    // int lS = std::min(curLowS,  curHighS);
+    // int hS = std::max(curLowS,  curHighS);
+    // int lV = std::min(curLowV,  curHighV);
+    // int hV = std::max(curLowV,  curHighV);
+    //
+    // Garage::yellow_low  = cv::Scalar(lH, lS, lV);
+    // Garage::yellow_high = cv::Scalar(hH, hS, hV);
+    // Garage::Update(frame);
+    //
+    // // 更新锥桶检测器的HSV参数
+    // ConeDetector::detection_params.hsv_low = cv::Scalar(lH, lS, lV);
+    // ConeDetector::detection_params.hsv_high = cv::Scalar(hH, hS, hV);
+
+    draw = frame.clone();
+    ConeDetector::drawDetectedCones(draw);
+
+    const auto error = TUxiang_Init(frame);
+    std::cout << "error: " << error << std::endl;
+    cv::imshow("detected_cones", draw);
+
+
+    auto waitKeyTime = isPaused ? 10 : Garage::wait_time;
+    auto key = cv::waitKey(waitKeyTime) & 0xFF;
+    if (key == 'q' || key == 'Q' || key == 27) {
+      // 'q' 或 ESC 退出
+      std::cout << "Exiting..." << std::endl;
+      break;
+    } else if (key == ' ') {
+      // 空格键暂停/继续
+      isPaused = !isPaused;
+      if (isPaused) {
+        std::cout << "Video PAUSED - Press SPACE to resume, 'q' to quit" << std::endl;
+      } else {
+        std::cout << "Video RESUMED" << std::endl;
+      }
+    } else if (key == 'p' || key == 'P') {
+      // 'p' 键打印当前帧的锥桶检测结果
+      ConeDetector::printConeInfo();
+    }
+  }
+  return 0;
+}
+#endif // _DEBUG
