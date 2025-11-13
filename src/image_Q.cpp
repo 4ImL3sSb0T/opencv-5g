@@ -4,9 +4,6 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 
-extern "C" {
-#include "serial.h"
-}
 // 全局变量定义
 int car_speed = setspeed1; // 车辆速度，初始值来自serial.h
 int banmaxian_Y = 0;       // 检测到的斑马线Y坐标

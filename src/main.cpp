@@ -110,21 +110,21 @@ int main()
         ConeDetector::detectCones(frame);
         
         // 创建专用于显示锥桶检测的副本
-        cv::Mat cone_display = frame.clone();
+        auto cone_display = frame.clone();
         ConeDetector::drawDetectedCones(cone_display, true);
         
         // 显示锥桶检测结果窗口（大窗口，便于观察）
         cv::imshow("Cone Detection", cone_display);
         
         // 也在原始Frame副本上绘制用于Garage处理
-        cv::Mat display_frame = frame.clone();
+        auto display_frame = frame.clone();
         ConeDetector::drawDetectedCones(display_frame, false);  // 不显示详细信息，避免干扰Garage检测
         
         Garage::Update(frame);
         
         // 按键处理 - 暂停时使用较短延迟以保证响应性，播放时使用配置的延迟
-        int waitKeyTime = isPaused ? 10 : Garage::wait_time;
-        int key = cv::waitKey(waitKeyTime) & 0xFF;
+        auto waitKeyTime = isPaused ? 10 : Garage::wait_time;
+        auto key = cv::waitKey(waitKeyTime) & 0xFF;
         if (key == 'q' || key == 'Q' || key == 27) {
             // 'q' 或 ESC 退出
             std::cout << "Exiting..." << std::endl;
