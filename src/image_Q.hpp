@@ -10,7 +10,7 @@
 #define int16 int   
 #define int32 long  
 #define ROW  96 - 20  
-#define COL 640   
+#define COL 320   
 #define MIDVALUE 320/2  
 #define BIANJIEadd 8   //边界补线误差（差的多补的弯道比较好，默认是2）、、、、、、、、、、、、、、会不会v和
 extern int find_XYdata_second[3];//障碍物坐标
@@ -30,8 +30,6 @@ extern int stopbanma;
 extern int banmaenable;//2是不允许，1是允许
 extern int bizhangenable;
 extern int yellowenable;
-extern int cone_guidance_enable;
-void setConeGuidanceMode(int enable);
 //=====>>>>>>>>>>>>>
 int16 Limit_Protect(int16 num, int32 min, int32 max);
 int16 Fit_Point(uint8 i, float Ka, float Kb);
@@ -67,6 +65,7 @@ extern int CAR_STOP_FLAG;
 extern int BZget;
 extern int banmaxian_Y;//斑马线坐标
 extern int TIMEDELAY; //定时器延时
+extern int BANMATIME; //斑马线定时器（banmachuli()函数使用）
 #define erroe_xiuzheng 0   //误差修正
 
 #define setspeed1  2000
@@ -117,7 +116,20 @@ extern cv::Mat frame;
 extern char GETYOLOflag;
 extern int car_l_mid_stop;
 
+// ========== 换道任务变量 ==========
+extern int huandaoenable;        // 换道使能
+extern int arrowget;             // 箭头方向: 0=未识别, 1=左, 2=右
+extern int huandaostate;         // 换道状态: 0=待机, 1=去程, 2=等待, 3=回程, 4=完成
+extern int cone_error;           // 锥桶补线计算的error值
+extern int use_cone_error;       // 是否使用锥桶error: 0=使用原循迹, 1=使用锥桶补线
 
+// demo.cpp 中的变量和函数（换道任务需要使用）
+extern int speed;                // 速度控制
+extern int tiaosu;               // 速度档位
+void servor_set(int data);       // 舵机控制函数
+
+// 换道任务函数
+void huandaochuli(void);
 
 
 #endif

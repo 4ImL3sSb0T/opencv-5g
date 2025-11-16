@@ -10,12 +10,11 @@ add_executable(opencv_5g src/main.cpp src/json.hpp src/config.hpp src/garage.hpp
         src/guided.h)
 add_executable(line_detection src/line_detection.cpp)
 
-add_executable(guided src/guided_main.cpp src/json.hpp src/config.hpp src/garage.hpp)
+add_executable(guided src/guided_main.cpp src/json.hpp src/config.hpp src/garage.hpp
+        )
 
-add_executable(tracker src/image_Q.cpp src/cone_detector.hpp)
+add_executable(trace src/trace_main.cpp src/json.hpp src/config.hpp src/garage.hpp)
 
-target_link_libraries(tracker ${OpenCV_LIBS}
-        spdlog::spdlog)
 
 target_link_libraries(opencv_5g ${OpenCV_LIBS}
         spdlog::spdlog)
@@ -26,11 +25,14 @@ target_link_libraries(line_detection ${OpenCV_LIBS}
 target_link_libraries(guided ${OpenCV_LIBS}
         spdlog::spdlog)
 
-target_include_directories(tracker PRIVATE src)
+target_link_libraries(trace ${OpenCV_LIBS}
+        spdlog::spdlog)
 
 target_include_directories(opencv_5g PRIVATE src)
 
 target_include_directories(line_detection PRIVATE src)
 
 target_include_directories(guided PRIVATE src)
+
+target_include_directories(trace PRIVATE src)
 
