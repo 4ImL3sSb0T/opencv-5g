@@ -13,7 +13,7 @@ add_executable(line_detection src/line_detection.cpp)
 add_executable(guided src/guided_main.cpp src/json.hpp src/config.hpp src/garage.hpp
         )
 
-add_executable(trace src/trace_main.cpp src/json.hpp src/config.hpp src/garage.hpp)
+add_executable(trace src/trace.cpp src/json.hpp src/config.hpp src/garage.hpp src/pigpio.h src/image_Q.cpp)
 
 
 target_link_libraries(opencv_5g ${OpenCV_LIBS}

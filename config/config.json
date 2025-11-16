@@ -4,8 +4,8 @@
     "ki": 0,
     "kd": 1.2,
     "output_limit": 15,
-    "error_offset": 25,
-    "output_offset": 80
+    "error_offset": -25,
+    "output_offset": 70
   },
   "servo": {
     "center_position": 74,
@@ -51,7 +51,7 @@
 
     },
     "wait_time": 1,
-    "path": "../img/left.mp4"
+    "path": "../img/base.mp4"
   },
   "motor": {
     "target_speed": 1000

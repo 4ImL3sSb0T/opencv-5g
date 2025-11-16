@@ -1,194 +1,302 @@
-#ifndef CONE_DETECTOR_HPP
-#define CONE_DETECTOR_HPP
+#ifndef __CONE_DETECTOR_HPP
+#define __CONE_DETECTOR_HPP
 
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include <map>
 #include <algorithm>
-#include "params.hpp"  // ⭐ 引入参数配置
+#include <cmath>
 
-class ConeDetector {
-public:
-    struct Cone {
-        cv::Point2f position;
-        float area;
-        int side; // 0=左, 1=右
+namespace ConeDetector {
+    // ============ 配置常数 ============
+    constexpr int MAX_CONES = 5;                           // 最多识别锥桶数
+    constexpr int DEFAULT_MORPH_KERNEL = 5;
+    constexpr double DEFAULT_MIN_AREA = 100.0;
+    constexpr double DEFAULT_MAX_AREA = 50000.0;
+    constexpr double DEFAULT_RATIO_MIN = 0.3;
+    constexpr double DEFAULT_RATIO_MAX = 3.0;
+    constexpr double DEFAULT_TRACKING_DIST = 50.0;
+    constexpr int DEFAULT_MAX_DISAPPEARED = 10;
+
+    // ============ 数据结构 ============
+    struct ConeParams {
+        cv::Scalar hsv_low, hsv_high;
+        int morph_kernel_size = DEFAULT_MORPH_KERNEL;
+        double min_area = DEFAULT_MIN_AREA;
+        double max_area = DEFAULT_MAX_AREA;
+        double area_ratio_min = DEFAULT_RATIO_MIN;
+        double area_ratio_max = DEFAULT_RATIO_MAX;
+        double tracking_distance_threshold = DEFAULT_TRACKING_DIST;
+        int max_disappeared_frames = DEFAULT_MAX_DISAPPEARED;
     };
 
-    ConeDetector() {
-        lower_yellow_ = cv::Scalar(CONE_HSV_H_MIN, CONE_HSV_S_MIN, CONE_HSV_V_MIN);
-        upper_yellow_ = cv::Scalar(CONE_HSV_H_MAX, CONE_HSV_S_MAX, CONE_HSV_V_MAX);
-        min_area_ = CONE_AREA_MIN;
-        max_area_ = CONE_AREA_MAX;
+    struct ConeObject {
+        int id;
+        cv::Rect bounding_box;
+        cv::Point center;
+        double area;
+        int disappeared_frames;
+        bool is_visible;
+    };
+
+    // ============ 全局变量 ============
+    inline ConeParams detection_params;
+    inline std::vector<ConeObject> detected_cones;
+    inline std::map<int, ConeObject> tracked_cones;
+    inline int next_cone_id = 0;
+    inline std::vector<cv::Point> line_points;  // 补线后的路径点
+
+    // ============ 核心函数 ============
+    inline void initConeDetector(const cv::Scalar& hsv_low, const cv::Scalar& hsv_high,
+                                 double min_area = DEFAULT_MIN_AREA, double max_area = DEFAULT_MAX_AREA) {
+        detection_params.hsv_low = hsv_low;
+        detection_params.hsv_high = hsv_high;
+        detection_params.min_area = min_area;
+        detection_params.max_area = max_area;
+        next_cone_id = 0;
+        tracked_cones.clear();
     }
 
-    // 动态设置HSV范围（用于调参）
-    void setHSVRange(cv::Scalar lower, cv::Scalar upper) {
-        lower_yellow_ = lower;
-        upper_yellow_ = upper;
+    inline double calculateDistance(const cv::Point& p1, const cv::Point& p2) {
+        double dx = p1.x - p2.x, dy = p1.y - p2.y;
+        return std::sqrt(dx * dx + dy * dy);
     }
 
-    // 动态设置面积范围（用于调参）
-    void setAreaRange(double min, double max) {
-        min_area_ = min;
-        max_area_ = max;
+    inline int getNextAvailableId() {
+        return (next_cone_id >= MAX_CONES) ? -1 : next_cone_id++;
     }
 
-    // 检测锥桶
-    std::vector<Cone> detect(const cv::Mat& frame) {
-        std::vector<Cone> cones;
-        if (frame.empty()) return cones;
+    inline std::vector<ConeObject> matchDetectionsToTracks(const std::vector<ConeObject>& new_detections) {
+        std::vector<ConeObject> matched_cones;
+        std::vector<bool> used(new_detections.size(), false);
 
+        // 清理离线锥桶
+        std::vector<int> to_remove;
+        for (auto& [id, cone] : tracked_cones) {
+            if (cone.disappeared_frames > detection_params.max_disappeared_frames) {
+                to_remove.push_back(id);
+            }
+        }
+        for (int id : to_remove) tracked_cones.erase(id);
+
+        // 匹配已有追踪与新检测
+        for (auto& [id, tracked] : tracked_cones) {
+            tracked.is_visible = false;
+            tracked.disappeared_frames++;
+
+            double min_dist = detection_params.tracking_distance_threshold;
+            int best_idx = -1;
+
+            for (size_t i = 0; i < new_detections.size(); ++i) {
+                if (used[i]) continue;
+                double dist = calculateDistance(tracked.center, new_detections[i].center);
+                if (dist < min_dist) {
+                    min_dist = dist;
+                    best_idx = static_cast<int>(i);
+                }
+            }
+
+            if (best_idx >= 0) {
+                auto upd = new_detections[best_idx];
+                upd.id = id;
+                upd.disappeared_frames = 0;
+                upd.is_visible = true;
+                tracked_cones[id] = upd;
+                matched_cones.push_back(upd);
+                used[best_idx] = true;
+            }
+        }
+
+        // 为新检测分配 ID
+        for (size_t i = 0; i < new_detections.size(); ++i) {
+            if (used[i]) continue;
+            int new_id = getNextAvailableId();
+            if (new_id == -1) continue;
+
+            auto cone = new_detections[i];
+            cone.id = new_id;
+            cone.disappeared_frames = 0;
+            cone.is_visible = true;
+            tracked_cones[new_id] = cone;
+            matched_cones.push_back(cone);
+        }
+
+        return matched_cones;
+    }
+
+    /**
+     * @brief 计算相邻锥桶间的补线路径点
+     */
+    inline void computeLinePath() {
+        line_points.clear();
+        
+        if (detected_cones.size() < 2) {
+            return;  // 少于2个锥桶无法补线
+        }
+
+        // 按 X 坐标排序锥桶（从左到右）
+        std::vector<ConeObject> sorted_cones = detected_cones;
+        std::sort(sorted_cones.begin(), sorted_cones.end(),
+                  [](const ConeObject& a, const ConeObject& b) {
+                      return a.center.x < b.center.x;
+                  });
+
+        // 连接相邻锥桶的中心点
+        for (size_t i = 0; i < sorted_cones.size(); ++i) {
+            line_points.push_back(sorted_cones[i].center);
+
+            // 在相邻锥桶间进行线性插值
+            if (i < sorted_cones.size() - 1) {
+                cv::Point p1 = sorted_cones[i].center;
+                cv::Point p2 = sorted_cones[i + 1].center;
+
+                // 计算两点间的距离
+                double dx = p2.x - p1.x;
+                double dy = p2.y - p1.y;
+                double dist = std::sqrt(dx * dx + dy * dy);
+
+                // 每 10 像素插入一个点
+                int steps = static_cast<int>(dist / 10.0);
+                for (int j = 1; j < steps; ++j) {
+                    double t = static_cast<double>(j) / steps;
+                    cv::Point interp(p1.x + dx * t, p1.y + dy * t);
+                    line_points.push_back(interp);
+                }
+            }
+        }
+    }
+
+    inline std::vector<ConeObject> detectCones(const cv::Mat& frame) {
+        detected_cones.clear();
+
+        // HSV 检测
         cv::Mat hsv, mask;
         cv::cvtColor(frame, hsv, cv::COLOR_BGR2HSV);
-        cv::inRange(hsv, lower_yellow_, upper_yellow_, mask);
+        cv::inRange(hsv, detection_params.hsv_low, detection_params.hsv_high, mask);
 
-        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
-        cv::morphologyEx(mask, mask, cv::MORPH_CLOSE, kernel);
-        cv::morphologyEx(mask, mask, cv::MORPH_OPEN, kernel);
+        // 形态学操作
+        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE,
+                                                    cv::Size(detection_params.morph_kernel_size,
+                                                           detection_params.morph_kernel_size));
+        cv::Mat opening, dilated;
+        cv::morphologyEx(mask, opening, cv::MORPH_OPEN, kernel);
+        cv::dilate(opening, dilated, kernel, cv::Point(-1, -1), 2);
 
+        // 轮廓检测
         std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+        cv::findContours(dilated.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
-        int center_x = frame.cols / 2;
+        std::vector<ConeObject> raw_detections;
         for (const auto& contour : contours) {
             double area = cv::contourArea(contour);
-            if (area < min_area_ || area > max_area_) continue;
+            if (area < detection_params.min_area || area > detection_params.max_area) continue;
 
-            cv::Moments m = cv::moments(contour);
-            if (m.m00 == 0) continue;
+            cv::Rect bbox = cv::boundingRect(contour);
+            double ratio = static_cast<double>(bbox.width) / std::max(1, bbox.height);
+            if (ratio < detection_params.area_ratio_min || ratio > detection_params.area_ratio_max) continue;
 
-            Cone cone;
-            cone.position.x = m.m10 / m.m00;
-            cone.position.y = m.m01 / m.m00;
-            cone.area = area;
-            cone.side = (cone.position.x < center_x) ? 0 : 1;
-            cones.push_back(cone);
+            ConeObject cone{-1, bbox, cv::Point(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2),
+                           area, 0, false};
+            raw_detections.push_back(cone);
         }
 
-        // 按Y坐标排序(从近到远)
-        std::sort(cones.begin(), cones.end(),
-                  [](const Cone& a, const Cone& b) { return a.position.y > b.position.y; });
-        return cones;
-    }
+        detected_cones = matchDetectionsToTracks(raw_detections);
 
-    // ⭐⭐⭐ 核心函数：根据锥桶计算虚拟中线的error值 ⭐⭐⭐
-    int calculateError(const std::vector<Cone>& cones, int frame_width, int frame_height, int arrow_direction) {
-        if (cones.empty()) {
-            return frame_width / 2; // 没有锥桶，返回中心
+        // 过滤有效锥桶
+        std::vector<ConeObject> valid;
+        for (const auto& cone : detected_cones) {
+            if (cone.id >= 0 && cone.id < MAX_CONES) {
+                valid.push_back(cone);
+            }
         }
-
-        // 分离左右侧锥桶
-        std::vector<Cone> left_cones, right_cones;
-        for (const auto& cone : cones) {
-            if (cone.side == 0) left_cones.push_back(cone);
-            else right_cones.push_back(cone);
-        }
-
-        // 计算检测行（图像下方1/3处）
-        int detect_y = frame_height * 2 / 3;
+        detected_cones = valid;
         
-        // 计算左右边界点
-        int left_x = 0;
-        int right_x = frame_width;
-
-        // 左侧边界拟合
-        if (left_cones.size() >= 2) {
-            left_x = fitLineAtY(left_cones, detect_y);
-        } else if (left_cones.size() == 1) {
-            left_x = left_cones[0].position.x;
-        }
-
-        // 右侧边界拟合
-        if (right_cones.size() >= 2) {
-            right_x = fitLineAtY(right_cones, detect_y);
-        } else if (right_cones.size() == 1) {
-            right_x = right_cones[0].position.x;
-        }
-
-        // 计算虚拟中线
-        int virtual_center = (left_x + right_x) / 2;
+        // 计算补线点
+        computeLinePath();
         
-        // 根据换道方向偏移中线
-        int offset = VIRTUAL_LINE_OFFSET;
-        if (arrow_direction == 1) { // 左换道
-            virtual_center -= offset; // 向左偏移，避开左侧锥桶
-        } else if (arrow_direction == 2) { // 右换道
-            virtual_center += offset; // 向右偏移，避开右侧锥桶
-        }
-
-        std::cout << "锥桶补线: 左边界=" << left_x 
-                  << " 右边界=" << right_x 
-                  << " 虚拟中线=" << virtual_center 
-                  << " 偏移=" << (arrow_direction == 1 ? "-" : "+") << offset << std::endl;
-
-        return virtual_center;
+        return detected_cones;
     }
 
-    // 可视化调试
-    void drawCones(cv::Mat& frame, const std::vector<Cone>& cones) {
-        for (const auto& cone : cones) {
-            cv::circle(frame, cone.position, 8, cv::Scalar(0, 255, 255), -1);
-            cv::putText(frame, 
-                        (cone.side == 0 ? "L" : "R"),
-                        cv::Point(cone.position.x + 10, cone.position.y - 10),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
-        }
+    /**
+     * @brief 获取补线后的路径点
+     * @return 路径点列表
+     */
+    inline const std::vector<cv::Point>& getLinePath() {
+        return line_points;
     }
 
-    void drawVirtualLine(cv::Mat& frame, const std::vector<Cone>& cones, int arrow_direction) {
-        if (cones.empty()) return;
+    inline void drawDetectedCones(cv::Mat& frame, bool draw_info = true) {
+        const cv::Scalar GREEN(0, 255, 0), YELLOW(0, 255, 255), RED(0, 0, 255), CYAN(255, 255, 0);
 
-        // 分离左右侧锥桶
-        std::vector<Cone> left_cones, right_cones;
-        for (const auto& cone : cones) {
-            if (cone.side == 0) left_cones.push_back(cone);
-            else right_cones.push_back(cone);
-        }
-
-        // 绘制左侧边界线
-        if (left_cones.size() >= 2) {
-            for (size_t i = 0; i < left_cones.size() - 1; i++) {
-                cv::line(frame, left_cones[i].position, left_cones[i+1].position, 
-                         cv::Scalar(255, 0, 0), 2);
+        // 绘制补线路径
+        if (line_points.size() > 1) {
+            for (size_t i = 0; i < line_points.size() - 1; ++i) {
+                cv::line(frame, line_points[i], line_points[i + 1], CYAN, 2);
             }
         }
 
-        // 绘制右侧边界线
-        if (right_cones.size() >= 2) {
-            for (size_t i = 0; i < right_cones.size() - 1; i++) {
-                cv::line(frame, right_cones[i].position, right_cones[i+1].position, 
-                         cv::Scalar(0, 0, 255), 2);
+        for (const auto& cone : detected_cones) {
+            // 绘制边框
+            cv::rectangle(frame, cone.bounding_box, GREEN, 2);
+            cv::rectangle(frame, cv::Point(cone.bounding_box.x - 2, cone.bounding_box.y - 2),
+                         cv::Point(cone.bounding_box.x + cone.bounding_box.width + 2,
+                                  cone.bounding_box.y + cone.bounding_box.height + 2), YELLOW, 1);
+
+            // 绘制中心
+            cv::circle(frame, cone.center, 8, RED, -1);
+            cv::circle(frame, cone.center, 8, YELLOW, 2);
+
+            // 绘制十字
+            cv::line(frame, cv::Point(cone.center.x - 15, cone.center.y),
+                     cv::Point(cone.center.x + 15, cone.center.y), CYAN, 1);
+            cv::line(frame, cv::Point(cone.center.x, cone.center.y - 15),
+                     cv::Point(cone.center.x, cone.center.y + 15), CYAN, 1);
+
+            if (draw_info) {
+                // 绘制 ID
+                std::string id_text = "ID #" + std::to_string(cone.id);
+                cv::putText(frame, id_text, cv::Point(cone.bounding_box.x, cone.bounding_box.y - 5),
+                           cv::FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2);
+
+                // 绘制位置和面积
+                std::string info = "(" + std::to_string(cone.center.x) + "," + std::to_string(cone.center.y) + ")";
+                cv::putText(frame, info, cv::Point(cone.center.x + 15, cone.center.y - 5),
+                           cv::FONT_HERSHEY_SIMPLEX, 0.4, CYAN, 1);
+                cv::putText(frame, "A:" + std::to_string(static_cast<int>(cone.area)),
+                           cv::Point(cone.bounding_box.x, cone.bounding_box.y + cone.bounding_box.height + 15),
+                           cv::FONT_HERSHEY_SIMPLEX, 0.4, CYAN, 1);
             }
         }
 
-        // 绘制虚拟中线
-        int detect_y = frame.rows * 2 / 3;
-        int virtual_center = calculateError(cones, frame.cols, frame.rows, arrow_direction);
-        cv::circle(frame, cv::Point(virtual_center, detect_y), 10, cv::Scalar(0, 255, 0), -1);
-        cv::line(frame, cv::Point(virtual_center, detect_y), 
-                 cv::Point(virtual_center, frame.rows), cv::Scalar(0, 255, 0), 2);
+        // 绘制统计信息
+        std::string stat = "V:" + std::to_string(detected_cones.size()) + " T:" + std::to_string(tracked_cones.size());
+        cv::putText(frame, stat, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2);
     }
 
-private:
-    // 拟合直线，返回在指定Y坐标处的X值
-    int fitLineAtY(const std::vector<Cone>& cones, int y) {
-        if (cones.empty()) return 0;
-        if (cones.size() == 1) return cones[0].position.x;
+    inline const std::vector<ConeObject>& getCones() { return detected_cones; }
+    inline size_t getConeCount() { return detected_cones.size(); }
 
-        // 使用最近的两个锥桶进行线性插值
-        const Cone& c1 = cones[0];
-        const Cone& c2 = cones[1];
-
-        float k = (c2.position.x - c1.position.x) / (c2.position.y - c1.position.y);
-        float x = c1.position.x + k * (y - c1.position.y);
-
-        return static_cast<int>(x);
+    inline void printConeInfo() {
+        std::cout << "\n=== Cone Detection ===" << std::endl;
+        std::cout << "Visible: " << detected_cones.size() << " | Total ID: " << next_cone_id << std::endl;
+        for (const auto& cone : detected_cones) {
+            std::cout << "ID#" << cone.id << ": (" << cone.center.x << "," << cone.center.y
+                     << ") Area:" << static_cast<int>(cone.area) << std::endl;
+        }
+        
+        // 打印补线路径
+        if (line_points.size() > 0) {
+            std::cout << "\nLine Path Points (" << line_points.size() << "):" << std::endl;
+            for (size_t i = 0; i < line_points.size() && i < 10; ++i) {  // 最多打印前10个点
+                std::cout << "  [" << i << "] (" << line_points[i].x << "," << line_points[i].y << ")";
+                if ((i + 1) % 3 == 0) std::cout << "\n";
+            }
+            if (line_points.size() > 10) std::cout << "  ... and " << (line_points.size() - 10) << " more";
+            std::cout << "\n";
+        }
+        std::cout << "======================\n" << std::endl;
     }
 
-    cv::Scalar lower_yellow_;
-    cv::Scalar upper_yellow_;
-    double min_area_;
-    double max_area_;
-};
+} // namespace ConeDetector
 
-#endif // CONE_DETECTOR_HPP
+#endif // !__CONE_DETECTOR_HPP
