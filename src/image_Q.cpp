@@ -174,9 +174,10 @@ void Curve3_Fitting(float* Ka, float* Kb, uint8 Start, uint8 End, int16* Line, i
             Mid上一行中线的值（调用i+1�?  Left_Min左边最小�?      Right_Max右边最大�?
             Left_Line实际左边�?           Right_Line实际右边�?    Left_Add_Line补线左边�?      Right_Add_Line补线右边�?
 -------------------------------------------------------------------------------------------------------------------*/
-void Earge_Search_Mid(int16 i, cv::Mat data, int16 Mid, int16 Left_Min, int16 Right_Max, int16* Left_Line,
+void Earge_Search_Mid(int16 i, const cv::Mat& frame, int16 Mid, int16 Left_Min, int16 Right_Max, int16* Left_Line,
                       int16* Right_Line, int16* Left_Add_Line, int16* Right_Add_Line, int mods)
 {
+    auto data = frame.clone();
     int16 j; //用于内部列循�?
     int16 N = 6; /*前N行丢线特殊处理，近处丢线如果不特殊处理，补线过于偏的话，因为所占权重大，会导致的影响比较大*/
 
@@ -202,6 +203,11 @@ void Earge_Search_Mid(int16 i, cv::Mat data, int16 Mid, int16 Left_Min, int16 Ri
     /*左边线查�?*/
     for (j = Mid; j >= 10; j -= 4) //以前一行中点为起点向左查找边界
     {
+        if (data.empty() || data.rows <= i || data.cols <= j)
+        {
+            std::cerr << "Error: Invalid image dimensions or indices." << std::endl;
+            return;
+        }
         if ((data.at<uchar>(i, j) < 100) && (data.at<uchar>(i, j - 4) < 100) && (data.at<uchar>(i, j - 8) > 100))
         /*黑白�?*/ /*为啥不用全用阈值写if(data[i][j] < BlackThres  && data[i][j-1] < BlackThres)�?*/
         {
@@ -223,6 +229,11 @@ void Earge_Search_Mid(int16 i, cv::Mat data, int16 Mid, int16 Left_Min, int16 Ri
     /*右边线查�?*/
     for (j = Mid; j <= COL - 10; j += 4) // 以前一行中点为起点向右查找右边�?
     {
+        if (data.empty() || data.rows <= i || data.cols <= j)
+        {
+            std::cerr << "Error: Invalid image dimensions or indices." << std::endl;
+            return;
+        }
         if ((data.at<uchar>(i, j) < 100) && (data.at<uchar>(i, j + 4) < 100) && (data.at<uchar>(i, j + 8) > 100))
         {
             /*上面的BlackThres后面的数字可以根据需要调一�?*/
@@ -522,8 +533,9 @@ int stabilize_error(int current_error)
 }
 
 
-int Image_Handle22(cv::Mat data, cv::Mat YUANTU, cv::Mat BANMA) //图像320 *120
+int Image_Handle22(const cv::Mat& frame, cv::Mat YUANTU, cv::Mat BANMA) //图像320 *120
 {
+    auto data = frame.clone();
     static int BZ_con[9];
     int errroer_car = 0;
     int16 i; // 控制行

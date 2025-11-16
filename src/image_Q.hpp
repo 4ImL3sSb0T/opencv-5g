@@ -38,10 +38,10 @@ int Q_jdz(int A);
 void Curve1_Fitting(float* Ka, float* Kb, int16* Start, int16* Line_Add, int16 Mode);
 void Curve2_Fitting(float* Ka, float* Kb, uint8 Start, uint8 End, int16* Line, int16 Mode, int16 num);
 void Curve3_Fitting(float* Ka, float* Kb, uint8 Start, uint8 End, int16* Line, int16 Mode);//环岛检测专用，最正规的求线
-void Earge_Search_Mid(int16 i, cv::Mat data, int16 Mid, int16 Left_Min, int16 Right_Max, int16* Left_Line, int16* Right_Line, int16* Left_Add_Line, int16* Right_Add_Line, int mods);
+void Earge_Search_Mid(int16 i, const cv::Mat& data, int16 Mid, int16 Left_Min, int16 Right_Max, int16* Left_Line, int16* Right_Line, int16* Left_Add_Line, int16* Right_Add_Line, int mods);
 int16 First_Line_Handle(cv::Mat data);
 void Mid_Line_Repair(void);//中线修复;
-int Image_Handle22(cv::Mat data, cv::Mat YUANTU, cv::Mat BANMA);  //图像320 *120
+int Image_Handle22(const cv::Mat& data, cv::Mat YUANTU, cv::Mat BANMA);  //图像320 *120
 //图像320 *120
 int error_get(void);
 int BZ_chuli(cv::Mat BZdata);//传入原图

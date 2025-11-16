@@ -45,7 +45,10 @@ namespace ConeDetector {
     inline std::map<int, ConeObject> tracked_cones;
     inline int next_cone_id = 0;
     inline std::vector<cv::Point> line_points;  // 补线后的路径点
-
+    inline int frame_size_width = 0;
+    inline int frame_size_height = 0;
+    inline int error_offset = 0;
+    inline int error_scale = 15;
     // ============ 核心函数 ============
     inline void initConeDetector(const cv::Scalar& hsv_low, const cv::Scalar& hsv_high,
                                  double min_area = DEFAULT_MIN_AREA, double max_area = DEFAULT_MAX_AREA) {
@@ -168,7 +171,8 @@ namespace ConeDetector {
 
     inline std::vector<ConeObject> detectCones(const cv::Mat& frame) {
         detected_cones.clear();
-
+        frame_size_height = frame.rows;
+        frame_size_width = frame.cols;
         // HSV 检测
         cv::Mat hsv, mask;
         cv::cvtColor(frame, hsv, cv::COLOR_BGR2HSV);
@@ -297,6 +301,20 @@ namespace ConeDetector {
         std::cout << "======================\n" << std::endl;
     }
 
+    inline int getError()
+    {
+        int error = 0;
+        if (line_points.size() >= 2)
+        {
+            for (const auto& point : line_points)
+            {
+                // TODO: 加入权重计算
+                error += point.x - frame_size_width / 2; // 假设图像宽度为320，中心点为160
+            }
+            error = error_scale * error / (static_cast<float>(line_points.size()) * frame_size_width) - error_offset;
+        }
+        return error;
+    }
 } // namespace ConeDetector
 
 #endif // !__CONE_DETECTOR_HPP
