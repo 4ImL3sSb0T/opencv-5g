@@ -48,7 +48,7 @@ namespace ConeDetector {
     inline int frame_size_width = 0;
     inline int frame_size_height = 0;
     inline int error_offset = 0;
-    inline int error_scale = 15;
+    inline int error_scale = 30;
     // ============ 核心函数 ============
     inline void initConeDetector(const cv::Scalar& hsv_low, const cv::Scalar& hsv_high,
                                  double min_area = DEFAULT_MIN_AREA, double max_area = DEFAULT_MAX_AREA) {
@@ -310,9 +310,12 @@ namespace ConeDetector {
             {
                 // TODO: 加入权重计算
                 error += point.x - frame_size_width / 2; // 假设图像宽度为320，中心点为160
+                if (static_cast<float>(point.y) / frame_size_height <= 0.5f) error *= 2;
             }
             error = error_scale * error / (static_cast<float>(line_points.size()) * frame_size_width) - error_offset;
         }
+        if (error >= 15) error = 15;
+        if (error <= -15) error = -15;
         return error;
     }
 } // namespace ConeDetector
