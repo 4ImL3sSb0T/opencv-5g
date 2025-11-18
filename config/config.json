@@ -4,15 +4,15 @@
     "ki": 0,
     "kd": 1.2,
     "output_limit": 15,
-    "error_offset": -25,
+    "error_offset": -4,
     "output_offset": 70
   },
   "servo": {
-    "center_position": 74,
+    "center_position": 70,
     "max_offset": 69
   },
   "gimbal": {
-    "horizontal_center": 74,
+    "horizontal_center": 70,
     "vertical_center": 20
   },
   "vision": {
@@ -45,15 +45,38 @@
       "area_ratio_max": 3.0,
       "tracking_distance_threshold": 50,
       "max_disappeared_frames": 10,
-      "id_assignment_mode": "continuous"
+      "id_assignment_mode": "continuous",
+      "error_scale": 15,
+      "error_offset": 0,
+      "left": {
+        "state_speed": 1000,
+        "state0_servo": 70,
+        "state1_delay": 1000,
+        "state1_servo": 74,
+        "state2_delay": 1000,
+        "state2_servo": 66,
+        "state3_delay": 1000,
+        "state3_servo": 66
+      },
+      "right": {
+        "state_speed": 1000,
+        "state0_servo": 70,
+        "state1_delay": 1000,
+        "state1_servo": 74,
+        "state2_delay": 1000,
+        "state2_servo": 66,
+        "state3_delay": 1000,
+        "state3_servo": 66
+      }
+
     },
     "guided": {
 
     },
     "wait_time": 1,
-    "path": "../img/right.mp4"
+    "path": "../img/left.mp4"
   },
   "motor": {
-    "target_speed": 1000
+    "target_speed": 0
   }
 }

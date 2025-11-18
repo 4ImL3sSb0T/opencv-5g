@@ -6,6 +6,7 @@
 #include <map>
 #include <algorithm>
 #include <cmath>
+#include "config.hpp"
 
 namespace ConeDetector {
     // ============ 配置常数 ============
@@ -57,6 +58,16 @@ namespace ConeDetector {
         detection_params.min_area = min_area;
         detection_params.max_area = max_area;
         next_cone_id = 0;
+        try
+        {
+            auto config = Config::get_config();
+            error_offset = config["vision"]["cone_detection"]["error_offset"].get<int>();
+            error_scale = config["vision"]["cone_detection"]["error_scale"].get<int>();
+        } catch (const std::exception& e)
+        {
+            std::cout << e.what() << std::endl;
+        }
+
         tracked_cones.clear();
     }
 
@@ -310,7 +321,7 @@ namespace ConeDetector {
             {
                 // TODO: 加入权重计算
                 error += point.x - frame_size_width / 2; // 假设图像宽度为320，中心点为160
-                if (static_cast<float>(point.y) / frame_size_height <= 0.5f) error *= 2;
+                // if (static_cast<float>(point.y) / frame_size_height <= 0.5f) error *= 2;
             }
             error = error_scale * error / (static_cast<float>(line_points.size()) * frame_size_width) - error_offset;
         }

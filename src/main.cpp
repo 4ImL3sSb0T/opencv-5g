@@ -107,8 +107,8 @@ int main()
         ConeDetector::detection_params.hsv_high = cv::Scalar(hH, hS, hV);
         
         // 执行锥桶检测
-        ConeDetector::detectCones(frame);
-        
+        auto cones = ConeDetector::detectCones(frame);
+        const int bin_cones_pos_offset = 100;
         // 创建专用于显示锥桶检测的副本
         auto cone_display = frame.clone();
         ConeDetector::drawDetectedCones(cone_display, true);
@@ -159,10 +159,8 @@ int main()
         
         // 显示锥桶检测结果窗口（大窗口，便于观察）
         cv::imshow("Cone Detection", cone_display);
-        
-        // 也在原始Frame副本上绘制用于Garage处理
-        auto display_frame = frame.clone();
-        ConeDetector::drawDetectedCones(display_frame, false);  // 不显示详细信息，避免干扰Garage检测
+        cv::imshow("Bin Cones", cone_frame);
+
         auto error = ConeDetector::getError();
         spdlog::info("Current Cone Error: {}", error);
         // Garage::Update(frame);
