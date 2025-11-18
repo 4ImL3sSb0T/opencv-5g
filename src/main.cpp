@@ -112,6 +112,50 @@ int main()
         // 创建专用于显示锥桶检测的副本
         auto cone_display = frame.clone();
         ConeDetector::drawDetectedCones(cone_display, true);
+
+        cv::Mat cone_frame = cv::Mat::zeros(frame.rows, frame.cols, CV_8UC1);
+        if (cones.size() >= 2) {
+            // 获取最后两个点
+            auto& p1 = cones[cones.size() - 2].center;
+            auto& p2 = cones[cones.size() - 1].center;
+            
+            // 计算斜率 k (注意添加括号)
+            double dx = p2.x - p1.x;
+            double dy = p2.y - p1.y;
+            
+            // 计算两点间距离
+            auto distance = cv::norm(p1 - p2);
+            
+            // 按相同的距离和方向推算新点
+            cv::Point new_point;
+            if (std::abs(dx) > 0.1) {  // 避免除零
+                new_point.x = p2.x + static_cast<int>(dx);
+                new_point.y = p2.y + static_cast<int>(dy);
+            } else {
+                // 垂直线的情况
+                new_point.x = p2.x;
+                new_point.y = p2.y + static_cast<int>(dy);
+            }
+            new_point += cv::Point(bin_cones_pos_offset, 0);
+            // 创建新的锥桶对象
+            auto new_cone = ConeDetector::ConeObject {
+                .id = -1,  // 预测点使用特殊ID
+                .bounding_box = cv::Rect(new_point.x - 10, new_point.y - 10, 20, 20),
+                .center = new_point,
+                .area = 500.0,
+                .disappeared_frames = 0,
+                .is_visible = true
+            };
+            
+            // 添加到 vector
+            cones.push_back(new_cone);
+        }
+        if (!cones.empty()) {
+            for (int index = 0; index < cones.size() - 1; index++) {
+                cv::line(cone_frame, cones[index].center, cones[index + 1].center, cv::Scalar(255), 10);
+            }
+        }
+
         
         // 显示锥桶检测结果窗口（大窗口，便于观察）
         cv::imshow("Cone Detection", cone_display);
