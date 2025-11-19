@@ -51,6 +51,13 @@ auto current_state = CAR_STATE::BEFORE_OBSTACLE;
 
 // ========================== Global Variables ==========================
 int g_stopFlag = 0;
+int BANMATIME = 0;
+
+int yuyinflag = 0;
+int hdflage = 0;
+int times;
+int stop_banmaxiankaojin = 0;
+int y = 0;
 
 // ========================== Motor Control ==========================
 void setMotorSpeed(int speed) {
@@ -137,7 +144,48 @@ void initializeGimbal() {
     gpioSetPWMrange(GIMBAL_VERTICAL_PIN, SERVO_PWM_RANGE);
     gpioPWM(GIMBAL_VERTICAL_PIN, GIMBAL_VERTICAL_CENTER); // Vertical: larger value = up, smaller = down
 }
+void banmachuli(void) {
+    if (stopbanma == 1) {
+        times = BANMATIME;
+        stopbanma = 2;
+    }
+    if (stopbanma == 2) // 停车保持打角正常
+    {
+        if (stop_banmaxiankaojin == 0) {
+            //  gpioPWM(13,10200);
+            //  gpioPWM(13,14200);
+            MOTOR_TARGET_SPEED = 2000;
+            setServoPosition(70);
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(2500)); // 延时 1000 毫
 
+            times = BANMATIME;
+            stop_banmaxiankaojin = 1;
+        }
+        if (banmaxian_Y < 45) {
+            MOTOR_TARGET_SPEED = 1200;
+            times = BANMATIME;
+            std::cout << "times =" << BANMATIME << std::endl;
+        }
+
+        else
+            MOTOR_TARGET_SPEED = 2000;
+        std::cout << "times =" << BANMATIME << std::endl;
+        std::cout << "stopbanma =" << stopbanma << std::endl;
+        std::cout << "banmaxian_Y =" << banmaxian_Y << std::endl;
+        std::cout << "stop_banmaxiankaojin =" << stop_banmaxiankaojin << std::endl;
+
+        if (BANMATIME - times > 1) {
+            stopbanma = 200;
+            MOTOR_TARGET_SPEED = 0;
+            y = BANMATIME;
+            stop_banmaxiankaojin = 0;
+            hdflage = 1;
+            yuyinflag = 2; // 2是允许
+            std::cout << "现在允许语音了" << std::endl;
+        }
+    }
+}
 // ========================== PID Control ==========================
 void pidControl(int error) {
     static int lastError = 0;
@@ -250,6 +298,11 @@ int run() {
     ConeDetector::detection_params.tracking_distance_threshold = tracking_distance;
     ConeDetector::detection_params.max_disappeared_frames = max_disappeared;
 
+    ConeDetector::initRedConeDetector(
+        cv::Scalar(0, 100, 100),    // HSV 下限
+        cv::Scalar(10, 255, 255)    // HSV 上限
+    );
+
     while (true){
         static auto start = std::chrono::steady_clock::now();
         // Capture frame
@@ -271,21 +324,28 @@ int run() {
         case CAR_STATE::BEFORE_OBSTACLE:
             {
                 // 这个过程正常循迹但是开启避障功能
+                const auto error = TUxiang_Init(frame);
+                pidControl(error);
                 break;
             }
         case CAR_STATE::BEFORE_ZEBRA:
             {
-                // 正常循迹开启斑马线检测功能
+                const auto error = TUxiang_Init(frame);
+                pidControl(error);
+                banmachuli();
                 break;
             }
         case CAR_STATE::BEFORE_GUIDED:
             {
                 // 开启引导区功能
-                const auto cones = ConeDetector::detectCones(frame);
+                auto cones = ConeDetector::detectCones(frame);
+                auto red_cones = ConeDetector::detectRedCones(frame);
+                ConeDetector::drawDetectedRedCones(draw_frame);
+                ConeDetector::drawDetectedCones(draw_frame);
                 if (!cones.empty()) {
                     // 进入引导区
                     // 还得判断左右
-                    setMotorSpeed(1000);
+                    setMotorSpeed(1200);
                     setServoPosition(70);
                     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
                     setServoPosition(70 + 15);
@@ -316,7 +376,7 @@ int run() {
         const auto error = ConeDetector::getError();
         // pidControl(trackingError);
         pidControl(error);
-        setMotorSpeed(MOTOR_TARGET_SPEED);
+        // setMotorSpeed(MOTOR_TARGET_SPEED);
 
 #ifdef _DEBUG
         cv::imshow("draw", draw_frame);

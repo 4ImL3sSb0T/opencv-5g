@@ -65,6 +65,7 @@ extern int CAR_STOP_FLAG;
 extern int BZget;
 extern int banmaxian_Y;//斑马线坐标
 extern int TIMEDELAY; //定时器延时
+int GuidedImgHandle(const cv::Mat& data);
 #define erroe_xiuzheng 0   //误差修正
 
 #define setspeed1  2000

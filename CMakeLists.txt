@@ -7,7 +7,7 @@ find_package(OpenCV REQUIRED)
 find_package(spdlog REQUIRED)
 
 add_executable(opencv_5g src/main.cpp src/json.hpp src/config.hpp src/garage.hpp
-        src/guided.h)
+        src/guided.h src/image_Q.cpp)
 add_executable(line_detection src/line_detection.cpp)
 
 add_executable(guided src/guided_main.cpp src/json.hpp src/config.hpp src/garage.hpp

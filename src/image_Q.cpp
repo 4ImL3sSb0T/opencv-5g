@@ -533,9 +533,8 @@ int stabilize_error(int current_error)
 }
 
 
-int Image_Handle22(const cv::Mat& frame, cv::Mat YUANTU, cv::Mat BANMA) //图像320 *120
+int Image_Handle22(const cv::Mat& data, cv::Mat YUANTU, cv::Mat BANMA) //图像320 *120
 {
-    auto data = frame.clone();
     static int BZ_con[9];
     int errroer_car = 0;
     int16 i; // 控制行
@@ -653,6 +652,72 @@ int Image_Handle22(const cv::Mat& frame, cv::Mat YUANTU, cv::Mat BANMA) //图像
 
 
     //printQ("斑马线获取 = ", BMGet);
+    LinearInterpolation(); //中线线性插值
+
+
+    errroer_car = error_get();
+    return (errroer_car);
+    //int stable_error = stabilize_error(errroer_car + erroe_xiuzheng);
+    //return stable_error;  // 返回处理后的稳定值
+}
+
+int GuidedImgHandle(const cv::Mat& data) //图像320 *120
+{
+    static int BZ_con[9];
+    int errroer_car = 0;
+    int16 i; // 控制行
+    int16 j; // 用于二次循环
+    Line_Count = 0; // 赛道行数复位
+    Left_Add_Start = 0; // 复位左补线起始行坐标
+    Right_Add_Start = 0; // 复位右补线起始行坐标
+    Left_Add_Stop = 0; // 复位左补线起终止坐标
+    Right_Add_Stop = 0; // 复位右补线起终止坐标
+    for (i = ROW - 1; i >= 9; i -= 2) //赛道初始化
+    {
+        Left_Add_Flag[i] = 1;
+        Right_Add_Flag[i] = 1;
+    }
+
+    // std::cout << "===== 所有行的left_Add_Line值 =====" << std::endl;
+    // for (int k = ROW-1; k >= 9; k -= 2) {
+    //     std::cout << "行" << k << ": " << Left_Add_Line[k] << std::endl;
+    // }
+    // std::cout << "===== 所有行的Right_Add_Line值 =====" << std::endl;
+    //     for (int k = ROW-1; k >= 9; k -= 2) {
+    //     std::cout << "行" << k << ": " << Right_Add_Line[k] << std::endl;
+    // }
+
+    /***************************** 第一行特殊处理 **************************/
+    int y = First_Line_Handle(data); //虚拟首行中点
+    /*处理普通赛道开始*/
+    for (i = ROW - 1; i >= 9; i -= 2) // 仅处理前40行图像，隔行后仅处理20行数据
+    {
+        Line_Count = i;
+        Earge_Search_Mid(i, data, Mid_Line[i + 2], 1, COL - 1, Left_Line, Right_Line, Left_Add_Line, Right_Add_Line,
+                         0); //搜寻并保存边界数据
+    }
+    LinearInterpolation(); //中线线性插值
+    // ---------------------------------------------
+    if (XUNJI_Imageflag == 1) //图像显示
+    {
+        for (i = ROW - 1; i >= 9; i -= 2)
+        {
+            cv::Point pa(Right_Add_Line[i] - 5, i); //记录点
+            cv::Point pb(Left_Add_Line[i] + 5, i); //记录点
+            cv::Point pc(Interpolated_Liness[i], i); //记录点
+            //描点画线
+            cv::circle(data, pa, 5, 255);
+            cv::circle(data, pb, 8, 255);
+            cv::circle(data, pc, 1, 255);
+        }
+
+
+        // 压缩图像尺寸让霍夫检测跑快点
+        cv::Mat kjkjkj;
+        cv::resize(data, kjkjkj, cv::Size(), 0.5, 0.5);
+        cv::imshow("循迹", kjkjkj); //最终扫线
+    }
+
     LinearInterpolation(); //中线线性插值
 
 
