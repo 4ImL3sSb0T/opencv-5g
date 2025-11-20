@@ -122,7 +122,7 @@ int main()
         // 显示锥桶检测结果窗口（大窗口，便于观察）
         cv::imshow("Cone Detection", cone_display);
         // cv::imshow("Bin Cones", cone_frame);
-        auto error = ConeDetector::getError();
+        // auto error = ConeDetector::getError();
         // spdlog::info("Current Cone Error: {}", error);
         // Garage::Update(frame);
         

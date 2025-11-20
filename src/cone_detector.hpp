@@ -9,7 +9,8 @@
 #include "config.hpp"
 #include "image_Q.hpp"
 
-namespace ConeDetector {
+namespace ConeDetector
+{
     // ============ 配置常数 ============
     constexpr int DEFAULT_MAX_CONES = 6;                   // 默认最多识别锥桶数
     constexpr int DEFAULT_MAX_RED_CONES = 4;               // 默认最多识别红色锥桶数
@@ -54,6 +55,10 @@ namespace ConeDetector {
     inline int next_red_cone_id = 0;
     inline std::vector<cv::Point> line_points;
     inline std::vector<cv::Point> red_line_points;
+    inline std::vector<cv::Point> real_line_points;      // 基于真实检测锥桶的路径
+    inline std::vector<cv::Point> real_red_line_points;  // 基于真实检测红色锥桶的路径
+    inline std::vector<ConeObject> real_cones;           // 真实检测的锥桶（不含虚拟点）
+    inline std::vector<ConeObject> real_red_cones;       // 真实检测的红色锥桶（不含虚拟点）
     inline int frame_size_width = 0;
     inline int frame_size_height = 0;
     inline int error_offset = 0;
@@ -110,6 +115,8 @@ namespace ConeDetector {
         return (next_red_cone_id >= red_detection_params.max_cones) ? -1 : next_red_cone_id++;
     }
 
+
+
     inline std::vector<ConeObject> matchDetectionsToTracks(const std::vector<ConeObject>& new_detections) {
         std::vector<ConeObject> matched_cones;
         std::vector<bool> used(new_detections.size(), false);
@@ -152,7 +159,7 @@ namespace ConeDetector {
         }
 
         // 为新检测分配 ID
-        for (size_t i = 0; i < new_detections.size(); ++i) {
+        for (size_t i = 0; i < new_detections.size(); i++) {
             if (used[i]) continue;
             int new_id = getNextAvailableId();
             if (new_id == -1) continue;
@@ -227,11 +234,53 @@ namespace ConeDetector {
     }
 
     /**
-     * @brief 计算相邻锥桶间的补线路径点
+     * @brief 计算真实锥桶间的路径点（用于误差计算）
+     */
+    inline void computeRealLinePath() {
+        real_line_points.clear();
+
+        if (real_cones.size() < 2) {
+            return;  // 少于2个锥桶无法补线
+        }
+
+        // 按 X 坐标排序锥桶（从左到右）
+        std::vector<ConeObject> sorted_cones = real_cones;
+        std::sort(sorted_cones.begin(), sorted_cones.end(),
+                  [](const ConeObject& a, const ConeObject& b) {
+                      return a.center.x < b.center.x;
+                  });
+
+        // 连接相邻锥桶的中心点
+        for (size_t i = 0; i < sorted_cones.size(); ++i) {
+            real_line_points.push_back(sorted_cones[i].center);
+
+            // 在相邻锥桶间进行线性插值
+            if (i < sorted_cones.size() - 1) {
+                cv::Point p1 = sorted_cones[i].center;
+                cv::Point p2 = sorted_cones[i + 1].center;
+
+                // 计算两点间的距离
+                double dx = p2.x - p1.x;
+                double dy = p2.y - p1.y;
+                double dist = std::sqrt(dx * dx + dy * dy);
+
+                // 每 10 像素插入一个点
+                int steps = static_cast<int>(dist / 10.0);
+                for (int j = 1; j < steps; ++j) {
+                    double t = static_cast<double>(j) / steps;
+                    cv::Point interp(p1.x + dx * t, p1.y + dy * t);
+                    real_line_points.push_back(interp);
+                }
+            }
+        }
+    }
+
+    /**
+     * @brief 计算相邻锥桶间的补线路径点（包含虚拟点，用于显示）
      */
     inline void computeLinePath() {
         line_points.clear();
-        
+
         if (detected_cones.size() < 2) {
             return;  // 少于2个锥桶无法补线
         }
@@ -269,11 +318,48 @@ namespace ConeDetector {
     }
 
     /**
-     * @brief 计算红色锥桶间的补线路径点
+     * @brief 计算真实红色锥桶间的路径点（用于误差计算）
+     */
+    inline void computeRealRedLinePath() {
+        real_red_line_points.clear();
+
+        if (real_red_cones.size() < 2) {
+            return;
+        }
+
+        std::vector<ConeObject> sorted_cones = real_red_cones;
+        std::sort(sorted_cones.begin(), sorted_cones.end(),
+                  [](const ConeObject& a, const ConeObject& b) {
+                      return a.center.x < b.center.x;
+                  });
+
+        for (size_t i = 0; i < sorted_cones.size(); ++i) {
+            real_red_line_points.push_back(sorted_cones[i].center);
+
+            if (i < sorted_cones.size() - 1) {
+                cv::Point p1 = sorted_cones[i].center;
+                cv::Point p2 = sorted_cones[i + 1].center;
+
+                double dx = p2.x - p1.x;
+                double dy = p2.y - p1.y;
+                double dist = std::sqrt(dx * dx + dy * dy);
+
+                int steps = static_cast<int>(dist / 10.0);
+                for (int j = 1; j < steps; ++j) {
+                    double t = static_cast<double>(j) / steps;
+                    cv::Point interp(p1.x + dx * t, p1.y + dy * t);
+                    real_red_line_points.push_back(interp);
+                }
+            }
+        }
+    }
+
+    /**
+     * @brief 计算红色锥桶间的补线路径点（包含虚拟点，用于显示）
      */
     inline void computeRedLinePath() {
         red_line_points.clear();
-        
+
         if (detected_red_cones.size() < 2) {
             return;
         }
@@ -305,10 +391,85 @@ namespace ConeDetector {
         }
     }
 
+
+    /**
+     * @brief 根据已有锥桶推算虚拟点
+     * @param cones 锥桶列表
+     * @param extrapolate_head 是否在头部推算点
+     * @param extrapolate_tail 是否在尾部推算点
+     */
+    inline void extrapolateConePoints(std::vector<ConeObject>& cones, bool extrapolate_head = false, bool extrapolate_tail = true) {
+        if (cones.size() < 2) {
+            return;  // 需要至少2个点才能推算
+        }
+
+        // 尾部推算 (基于最后两个点)
+        if (extrapolate_tail) {
+            auto& p1 = cones[cones.size() - 2].center;
+            auto& p2 = cones[cones.size() - 1].center;
+
+            double dx = p2.x - p1.x;
+            double dy = p2.y - p1.y;
+
+            cv::Point new_point;
+            if (std::abs(dx) > 0.1) {
+                new_point.x = p2.x + static_cast<int>(dx);
+                new_point.y = p2.y + static_cast<int>(dy);
+            } else {
+                // 垂直线的情况
+                new_point.x = p2.x;
+                new_point.y = p2.y + static_cast<int>(dy);
+            }
+
+            auto new_cone = ConeObject {
+                .id = -1,
+                .bounding_box = cv::Rect(new_point.x - 10, new_point.y - 10, 20, 20),
+                .center = new_point,
+                .area = 500.0,
+                .disappeared_frames = 0,
+                .is_visible = true
+            };
+
+            cones.push_back(new_cone);
+        }
+
+        // 头部推算 (基于前两个点)
+        if (extrapolate_head) {
+            auto& p1 = cones[0].center;
+            auto& p2 = cones[1].center;
+
+            double dx = p1.x - p2.x;  // 反向计算
+            double dy = p1.y - p2.y;
+
+            cv::Point new_point;
+            if (std::abs(dx) > 0.1) {
+                new_point.x = p1.x + static_cast<int>(dx);
+                new_point.y = p1.y + static_cast<int>(dy);
+            } else {
+                // 垂直线的情况
+                new_point.x = p1.x;
+                new_point.y = p1.y + static_cast<int>(dy);
+            }
+
+            auto new_cone = ConeObject {
+                .id = -1,
+                .bounding_box = cv::Rect(new_point.x - 10, new_point.y - 10, 20, 20),
+                .center = new_point,
+                .area = 500.0,
+                .disappeared_frames = 0,
+                .is_visible = true
+            };
+
+            cones.insert(cones.begin(), new_cone);
+        }
+    }
+
     inline std::vector<ConeObject> detectCones(const cv::Mat& frame) {
         detected_cones.clear();
+        real_cones.clear();  // 清空真实锥桶列表
         frame_size_height = frame.rows;
         frame_size_width = frame.cols;
+
         // HSV 检测
         cv::Mat hsv, mask;
         cv::cvtColor(frame, hsv, cv::COLOR_BGR2HSV);
@@ -350,10 +511,19 @@ namespace ConeDetector {
             }
         }
         detected_cones = valid;
-        
-        // 计算补线点
+
+        // 保存真实检测的锥桶（用于误差计算）
+        real_cones = detected_cones;
+
+        // 基于真实锥桶计算路径（用于误差计算）
+        computeRealLinePath();
+
+        // 进行虚拟补点（用于显示和预测）
+        extrapolateConePoints(detected_cones, true, false);
+
+        // 计算包含虚拟点的完整路径（用于显示）
         computeLinePath();
-        
+
         return detected_cones;
     }
 
@@ -362,19 +532,20 @@ namespace ConeDetector {
      */
     inline std::vector<ConeObject> detectRedCones(const cv::Mat& frame) {
         detected_red_cones.clear();
+        real_red_cones.clear();  // 清空真实红色锥桶列表
 
         // HSV 检测 - 红色需要两个范围
         cv::Mat hsv, mask1, mask2, mask;
         cv::cvtColor(frame, hsv, cv::COLOR_BGR2HSV);
-        
+
         // 第一个红色范围: 0-10 (低色调红色)
         cv::inRange(hsv, red_detection_params.hsv_low, red_detection_params.hsv_high, mask1);
-        
+
         // 第二个红色范围: 170-180 (高色调红色)
         cv::Scalar hsv_low2(170, red_detection_params.hsv_low[1], red_detection_params.hsv_low[2]);
         cv::Scalar hsv_high2(180, red_detection_params.hsv_high[1], red_detection_params.hsv_high[2]);
         cv::inRange(hsv, hsv_low2, hsv_high2, mask2);
-        
+
         // 合并两个掩码
         cv::bitwise_or(mask1, mask2, mask);
         // 形态学操作
@@ -413,10 +584,19 @@ namespace ConeDetector {
             }
         }
         detected_red_cones = valid;
-        
-        // 计算补线点
+
+        // 保存真实检测的红色锥桶（用于误差计算）
+        real_red_cones = detected_red_cones;
+
+        // 基于真实红色锥桶计算路径（用于误差计算）
+        computeRealRedLinePath();
+
+        // 进行虚拟补点（用于显示和预测）
+        extrapolateConePoints(detected_red_cones, true, true);
+
+        // 计算包含虚拟点的完整路径（用于显示）
         computeRedLinePath();
-        
+
         return detected_red_cones;
     }
 
@@ -433,6 +613,35 @@ namespace ConeDetector {
      */
     inline const std::vector<cv::Point>& getRedLinePath() {
         return red_line_points;
+    }
+
+    /**
+     * @brief 获取真实锥桶路径点（用于误差计算）
+     * @return 真实路径点列表
+     */
+    inline const std::vector<cv::Point>& getRealLinePath() {
+        return real_line_points;
+    }
+
+    /**
+     * @brief 获取真实红色锥桶路径点（用于误差计算）
+     */
+    inline const std::vector<cv::Point>& getRealRedLinePath() {
+        return real_red_line_points;
+    }
+
+    /**
+     * @brief 获取真实检测的锥桶列表
+     */
+    inline const std::vector<ConeObject>& getRealCones() {
+        return real_cones;
+    }
+
+    /**
+     * @brief 获取真实检测的红色锥桶列表
+     */
+    inline const std::vector<ConeObject>& getRealRedCones() {
+        return real_red_cones;
     }
 
     inline void drawDetectedCones(cv::Mat& frame, bool draw_info = true) {
@@ -521,7 +730,7 @@ namespace ConeDetector {
             std::cout << "ID#" << cone.id << ": (" << cone.center.x << "," << cone.center.y
                      << ") Area:" << static_cast<int>(cone.area) << std::endl;
         }
-        
+
         // 打印补线路径
         if (line_points.size() > 0) {
             std::cout << "\nLine Path Points (" << line_points.size() << "):" << std::endl;
@@ -549,15 +758,19 @@ namespace ConeDetector {
     {
         int error = 0;
         cv::Mat mask = cv::Mat::zeros(frame_size_height, frame_size_width, CV_8UC1);
+
+        // 使用补完点的完整路径来计算误差，提供连续的路径信息用于控制
         if (!line_points.empty() && !red_line_points.empty()) {
+            // 绘制黄色锥桶的完整补线路径（包含虚拟点）
             for (int index = 0; index < line_points.size() - 1; index++) {
                 cv::line(mask, line_points[index], line_points[index + 1], cv::Scalar(255), 8);
             }
+            // 绘制红色锥桶的完整补线路径（包含虚拟点）
             for (int index = 0; index < red_line_points.size() - 1; index++) {
                 cv::line(mask, red_line_points[index], red_line_points[index + 1], cv::Scalar(255), 8);
             }
 #ifdef _DEBUG
-            cv::imshow("line mask", mask);
+            cv::imshow("complete path mask", mask);
 #endif
             // imgQ 里的神秘小数字
             cv::Rect roi_rect(0, (mask.rows / 2 - 90 + 70), mask.cols, (mask.rows / 2.5));
@@ -568,6 +781,7 @@ namespace ConeDetector {
         }
         return error;
     }
-} // namespace ConeDetector
+}
+
 
 #endif // !__CONE_DETECTOR_HPP
