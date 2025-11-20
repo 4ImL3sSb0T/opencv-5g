@@ -592,7 +592,7 @@ namespace ConeDetector
         computeRealRedLinePath();
 
         // 进行虚拟补点（用于显示和预测）
-        extrapolateConePoints(detected_red_cones, true, true);
+        extrapolateConePoints(detected_red_cones, true, false);
 
         // 计算包含虚拟点的完整路径（用于显示）
         computeRedLinePath();
