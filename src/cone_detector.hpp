@@ -781,6 +781,66 @@ namespace ConeDetector
         }
         return error;
     }
+
+    inline int detectConeGuideTail(const cv::Mat& frame, const float area_threshold = 150.0f, bool isShowDebugImg = false) {
+    cv::Mat draw = frame.clone();
+    cv::Mat hsv, mask;
+    cv::cvtColor(frame, hsv, cv::COLOR_BGR2HSV);
+    cv::inRange(hsv, cv::Scalar(15, 80, 120), cv::Scalar(35, 255, 255), mask);
+
+    const cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
+    cv::Mat opening;
+    cv::morphologyEx(mask, opening, cv::MORPH_OPEN, kernel);
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(opening.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    int count = 0;
+
+    if (contours.size() >= 2) {
+        for (const auto& contour : contours) {
+            const double area = cv::contourArea(contour);
+            const auto rect = cv::boundingRect(contour);
+
+            // 检查是否符合所有条件
+            bool is_valid = true;
+            cv::line(draw, cv::Point(frame.cols / 6, 0), cv::Point(frame.cols / 6, frame.rows), cv::Scalar(255, 0, 0), 2);
+            cv::line(draw, cv::Point(frame.cols * 5 / 6, 0), cv::Point(frame.cols * 5 / 6, frame.rows), cv::Scalar(255, 0, 0), 2);
+            // 检查位置是否在中间区域
+            if (rect.x < frame.cols / 6 || rect.x > frame.cols * 5 / 6) {
+                is_valid = false;
+            }
+
+            // 检查面积是否符合阈值
+            if (area < area_threshold) {
+                is_valid = false;
+            }
+
+            // 绘制边框：绿色表示符合条件，红色表示不符合
+            cv::Scalar color = is_valid ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+            cv::rectangle(draw, rect, color, 2);
+
+            // 添加面积信息
+            std::string area_text = "A:" + std::to_string(static_cast<int>(area));
+            cv::putText(draw, area_text, cv::Point(rect.x, rect.y - 5),
+                       cv::FONT_HERSHEY_SIMPLEX, 0.4, color, 1);
+
+            if (is_valid) count++;
+        }
+    }
+
+    // 显示结果
+    if (isShowDebugImg) {
+        std::string result_text = "Valid Cones: " + std::to_string(count) + "/" + std::to_string(contours.size());
+        cv::putText(draw, result_text, cv::Point(10, 30),
+                   cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 0), 2);
+        cv::imshow("Cone Guide Tail Detection", draw);
+    }
+    static int stable_count = 0;
+    if (count >= 2) stable_count++;
+    else stable_count = 0;
+    if (stable_count < 10) return 0;  // 需要连续3帧检测到锥桶才算有效
+    return 1;
+}
+
 }
 
 

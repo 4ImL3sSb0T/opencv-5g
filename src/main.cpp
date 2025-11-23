@@ -125,7 +125,8 @@ int main()
         // auto error = ConeDetector::getError();
         // spdlog::info("Current Cone Error: {}", error);
         // Garage::Update(frame);
-        
+        auto ret = ConeDetector::detectConeGuideTail(frame, 150.0f, true);
+        std::cout << "Guide Tail Detected: " << (ret ? "YES" : "NO") << std::endl;
         // 按键处理 - 暂停时使用较短延迟以保证响应性，播放时使用配置的延迟
         auto waitKeyTime = isPaused ? 10 : Garage::wait_time;
         auto key = cv::waitKey(waitKeyTime) & 0xFF;
