@@ -782,64 +782,198 @@ namespace ConeDetector
         return error;
     }
 
-    inline int detectConeGuideTail(const cv::Mat& frame, const float area_threshold = 150.0f, bool isShowDebugImg = false) {
-    cv::Mat draw = frame.clone();
-    cv::Mat hsv, mask;
-    cv::cvtColor(frame, hsv, cv::COLOR_BGR2HSV);
-    cv::inRange(hsv, cv::Scalar(15, 80, 120), cv::Scalar(35, 255, 255), mask);
-
-    const cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
-    cv::Mat opening;
-    cv::morphologyEx(mask, opening, cv::MORPH_OPEN, kernel);
-    std::vector<std::vector<cv::Point>> contours;
-    cv::findContours(opening.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-    int count = 0;
-
-    if (contours.size() >= 2) {
-        for (const auto& contour : contours) {
-            const double area = cv::contourArea(contour);
-            const auto rect = cv::boundingRect(contour);
-
-            // 检查是否符合所有条件
-            bool is_valid = true;
-            cv::line(draw, cv::Point(frame.cols / 6, 0), cv::Point(frame.cols / 6, frame.rows), cv::Scalar(255, 0, 0), 2);
-            cv::line(draw, cv::Point(frame.cols * 5 / 6, 0), cv::Point(frame.cols * 5 / 6, frame.rows), cv::Scalar(255, 0, 0), 2);
-            // 检查位置是否在中间区域
-            if (rect.x < frame.cols / 6 || rect.x > frame.cols * 5 / 6) {
-                is_valid = false;
-            }
-
-            // 检查面积是否符合阈值
-            if (area < area_threshold) {
-                is_valid = false;
-            }
-
-            // 绘制边框：绿色表示符合条件，红色表示不符合
-            cv::Scalar color = is_valid ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
-            cv::rectangle(draw, rect, color, 2);
-
-            // 添加面积信息
-            std::string area_text = "A:" + std::to_string(static_cast<int>(area));
-            cv::putText(draw, area_text, cv::Point(rect.x, rect.y - 5),
-                       cv::FONT_HERSHEY_SIMPLEX, 0.4, color, 1);
-
-            if (is_valid) count++;
+    inline int detectConeGuideTail(const cv::Mat& raw_frame, const float area_threshold = 75.0f,
+        bool isShowDebugImg = false) {
+        cv::Mat frame = raw_frame.clone();
+        cv::resize(frame, frame, ::Size(frame.cols / 2, frame.rows / 2));
+        cv::Mat line_image = cv::Mat::zeros(frame.size(), CV_8UC1);
+        cv::Mat draw = frame.clone();
+        const int lane_y_offset = frame.rows / 3; // 仅在屏幕下 2/3 区域寻找白线（过滤天空噪声）
+        const cv::Rect lane_roi_rect(0, lane_y_offset, frame.cols, frame.rows - lane_y_offset);
+        if (lane_roi_rect.height <= 0) {
+            std::cerr << "Invalid lane ROI" << std::endl;
+            return 0;
         }
-    }
+        cv::Mat lane_line_image = line_image(lane_roi_rect);
 
-    // 显示结果
-    if (isShowDebugImg) {
-        std::string result_text = "Valid Cones: " + std::to_string(count) + "/" + std::to_string(contours.size());
-        cv::putText(draw, result_text, cv::Point(10, 30),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 0), 2);
-        cv::imshow("Cone Guide Tail Detection", draw);
+        cv::Mat hsv, mask, gray;
+        cv::cvtColor(frame, hsv, cv::COLOR_BGR2HSV);
+        cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+        cv::inRange(hsv, cv::Scalar(15, 80, 120), cv::Scalar(35, 255, 255), mask);
+
+        // —— 根据 image_Q::TUxiang_Init 思路提取赛道白线，生成赛道边界 —— //
+        cv::Mat lane_gray = gray(lane_roi_rect).clone();
+        cv::Mat bilateral_blur, gaussian_blur, lane_edges;
+        cv::bilateralFilter(lane_gray, bilateral_blur, 7, 60, 60);
+        cv::GaussianBlur(bilateral_blur, gaussian_blur, cv::Size(5, 5), 30);
+        cv::Canny(gaussian_blur, lane_edges, 30, 50);
+        cv::Mat lane_kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(2, 2));
+        cv::Mat dilated_edges;
+        cv::dilate(lane_edges, dilated_edges, lane_kernel, cv::Point(-1, -1), 1);
+
+        std::vector<cv::Vec4i> all_lines;
+        cv::HoughLinesP(dilated_edges, all_lines, 1, CV_PI / 180, 70, 25, 5);
+        std::vector<cv::Vec4i> left_lane_segments;
+        std::vector<cv::Vec4i> right_lane_segments;
+        for (const auto& line : all_lines) {
+            const double angle_rad = atan2(line[3] - line[1], line[2] - line[0]);
+            const double angle_deg = angle_rad * 180.0 / CV_PI;
+            if (angle_deg >= -90.0 && angle_deg <= -18.0) {
+                left_lane_segments.push_back(line);
+            } else if (angle_deg >= 18.0 && angle_deg <= 90.0) {
+                right_lane_segments.push_back(line);
+            }
+        }
+
+        auto drawSegments = [&](const std::vector<cv::Vec4i>& segments) {
+            for (const auto& line : segments) {
+                const cv::Point pt1(line[0], line[1]);
+                const cv::Point pt2(line[2], line[3]);
+                cv::line(lane_line_image, pt1, pt2, cv::Scalar(255), 2, cv::LINE_AA);
+            }
+        };
+        drawSegments(left_lane_segments);
+        drawSegments(right_lane_segments);
+
+        cv::Mat lane_edges_mask = lane_line_image.clone();
+        if (!lane_edges_mask.empty()) {
+            cv::dilate(lane_edges_mask, lane_edges_mask, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3)),
+                cv::Point(-1, -1), 1);
+        }
+        std::vector<int> left_boundary(frame.rows, -1);
+        std::vector<int> right_boundary(frame.rows, -1);
+        std::vector<cv::Point> left_polyline;
+        std::vector<cv::Point> right_polyline;
+        const int center_x = frame.cols / 2;
+        for (int y = 0; y < lane_edges_mask.rows; ++y) {
+            const uchar* row_ptr = lane_edges_mask.ptr<uchar>(y);
+            // 从屏幕中心向左寻找最近的白线
+            for (int x = center_x; x >= 0; --x) {
+                if (row_ptr[x] > 0) {
+                    left_boundary[y + lane_y_offset] = x;
+                    break;
+                }
+            }
+            // 从屏幕中心向右寻找最近的白线
+            for (int x = center_x; x < lane_edges_mask.cols; ++x) {
+                if (row_ptr[x] > 0) {
+                    right_boundary[y + lane_y_offset] = x;
+                    break;
+                }
+            }
+
+            const int actual_y = y + lane_y_offset;
+            if (left_boundary[actual_y] >= 0 && right_boundary[actual_y] >= 0) {
+                if ((right_boundary[actual_y] - left_boundary[actual_y]) < 20) {
+                    left_boundary[actual_y] = right_boundary[actual_y] = -1;
+                    continue;
+                }
+                left_polyline.emplace_back(left_boundary[actual_y], actual_y);
+                right_polyline.emplace_back(right_boundary[actual_y], actual_y);
+            }
+        }
+
+        cv::Mat track_mask = cv::Mat::zeros(frame.size(), CV_8UC1);
+        int valid_track_rows = 0;
+        for (int y = 0; y < frame.rows; ++y) {
+            if (left_boundary[y] < 0 || right_boundary[y] < 0) continue;
+            ++valid_track_rows;
+            cv::line(track_mask, cv::Point(left_boundary[y], y), cv::Point(right_boundary[y], y), cv::Scalar(255), 1);
+        }
+        bool has_track_mask = valid_track_rows > lane_edges_mask.rows / 4;
+        if (has_track_mask) {
+            cv::morphologyEx(track_mask, track_mask, cv::MORPH_CLOSE,
+                cv::getStructuringElement(cv::MORPH_RECT, cv::Size(9, 9)));
+        } else {
+            track_mask.release();
+            left_polyline.clear();
+            right_polyline.clear();
+        }
+
+        if (!track_mask.empty()) {
+            cv::Mat color_mask(draw.size(), draw.type(), cv::Scalar(0, 0, 0));
+            color_mask.setTo(cv::Scalar(0, 120, 255), track_mask);
+            cv::addWeighted(draw, 1.0, color_mask, 0.35, 0, draw);
+            if (left_polyline.size() > 1) {
+                cv::polylines(draw, left_polyline, false, cv::Scalar(0, 255, 255), 2);
+            }
+            if (right_polyline.size() > 1) {
+                cv::polylines(draw, right_polyline, false, cv::Scalar(0, 255, 255), 2);
+            }
+        }
+
+        // —— 锥桶仍沿用原有轮廓判断，后续通过赛道掩膜过滤 —— //
+        const cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(5, 5));
+        // cv::Mat edges_for_cone;
+        // cv::Canny(gray, edges_for_cone, 30, 50);
+        cv::Mat yellow_opening;
+        cv::morphologyEx(mask, yellow_opening, cv::MORPH_OPEN, kernel);
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(yellow_opening.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+        int count = 0;
+        double roi_cone_area = 0.0;
+        if (contours.size() >= 2 && !track_mask.empty()) {
+            for (const auto& contour : contours) {
+                const double area = cv::contourArea(contour);
+                const auto rect = cv::boundingRect(contour);
+
+                // 检查是否符合所有条件
+                bool is_valid = true;
+                
+                // 检查面积是否符合阈值
+                if (area < area_threshold) {
+                    is_valid = false;
+                }
+
+                // 限制锥桶必须位于赛道掩膜内
+                if (is_valid && !track_mask.empty()) {
+                    const cv::Point center(rect.x + rect.width / 2, rect.y + rect.height / 2);
+                    if (center.x < 0 || center.x >= track_mask.cols ||
+                        center.y < 0 || center.y >= track_mask.rows ||
+                        track_mask.at<uint8_t>(center) == 0) {
+                        is_valid = false;
+                    }
+                }
+
+                // 绘制边框：绿色表示符合条件，红色表示不符合
+                cv::Scalar color = is_valid ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+                cv::rectangle(draw, rect, color, 2);
+
+                // 添加面积信息
+                std::string area_text = "A:" + std::to_string(static_cast<int>(area));
+                cv::putText(draw, area_text, cv::Point(rect.x, rect.y - 5),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.4, color, 1);
+
+                if (is_valid) {
+                    count++;
+                    roi_cone_area += area;
+                }
+            }
+        }
+
+        if (!track_mask.empty()) {
+            std::string roi_area_text = "ROI Cone Area: " + std::to_string(static_cast<int>(roi_cone_area));
+            cv::putText(draw, roi_area_text, cv::Point(10, 55),
+                cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 200, 255), 2);
+        }
+
+        // 显示结果
+        if (isShowDebugImg) {
+            std::string result_text = "Valid Cones: " + std::to_string(count) + "/" + std::to_string(contours.size());
+            cv::putText(draw, result_text, cv::Point(10, 30),
+                cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 0), 2);
+            cv::imshow("Cone Guide Tail Detection", draw);
+            // if (!track_mask.empty()) cv::imshow("track mask", track_mask);
+            cv::imshow("mask", mask);
+            cv::imshow("line", line_image);
+        }
+        static int stable_count = 0;
+        if (count >= 2) stable_count++;
+        else stable_count = 0;
+        if (stable_count < 4) return 0;  // 需要连续3帧检测到锥桶才算有效
+        return 1;
     }
-    static int stable_count = 0;
-    if (count >= 2) stable_count++;
-    else stable_count = 0;
-    if (stable_count < 10) return 0;  // 需要连续3帧检测到锥桶才算有效
-    return 1;
-}
 
 }
 

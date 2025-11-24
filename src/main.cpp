@@ -90,42 +90,42 @@ int main()
         }
         
         // 读取滑条并同步到Garage阈值（确保low<=high）
-        int curLowH  = cv::getTrackbarPos("Low H",  "HSV Controls");
-        int curLowS  = cv::getTrackbarPos("Low S",  "HSV Controls");
-        int curLowV  = cv::getTrackbarPos("Low V",  "HSV Controls");
-        int curHighH = cv::getTrackbarPos("High H", "HSV Controls");
-        int curHighS = cv::getTrackbarPos("High S", "HSV Controls");
-        int curHighV = cv::getTrackbarPos("High V", "HSV Controls");
-
-        int lH = std::min(curLowH,  curHighH);
-        int hH = std::max(curLowH,  curHighH);
-        int lS = std::min(curLowS,  curHighS);
-        int hS = std::max(curLowS,  curHighS);
-        int lV = std::min(curLowV,  curHighV);
-        int hV = std::max(curLowV,  curHighV);
-
-        Garage::yellow_low  = cv::Scalar(lH, lS, lV);
-        Garage::yellow_high = cv::Scalar(hH, hS, hV);
-        
-        // 更新锥桶检测器的HSV参数
-        ConeDetector::detection_params.hsv_low = cv::Scalar(lH, lS, lV);
-        ConeDetector::detection_params.hsv_high = cv::Scalar(hH, hS, hV);
+        // int curLowH  = cv::getTrackbarPos("Low H",  "HSV Controls");
+        // int curLowS  = cv::getTrackbarPos("Low S",  "HSV Controls");
+        // int curLowV  = cv::getTrackbarPos("Low V",  "HSV Controls");
+        // int curHighH = cv::getTrackbarPos("High H", "HSV Controls");
+        // int curHighS = cv::getTrackbarPos("High S", "HSV Controls");
+        // int curHighV = cv::getTrackbarPos("High V", "HSV Controls");
+        //
+        // int lH = std::min(curLowH,  curHighH);
+        // int hH = std::max(curLowH,  curHighH);
+        // int lS = std::min(curLowS,  curHighS);
+        // int hS = std::max(curLowS,  curHighS);
+        // int lV = std::min(curLowV,  curHighV);
+        // int hV = std::max(curLowV,  curHighV);
+        //
+        // Garage::yellow_low  = cv::Scalar(lH, lS, lV);
+        // Garage::yellow_high = cv::Scalar(hH, hS, hV);
+        //
+        // // 更新锥桶检测器的HSV参数
+        // ConeDetector::detection_params.hsv_low = cv::Scalar(lH, lS, lV);
+        // ConeDetector::detection_params.hsv_high = cv::Scalar(hH, hS, hV);
         
         // 执行锥桶检测
-        auto cones = ConeDetector::detectCones(frame);
-        auto red_cones = ConeDetector::detectRedCones(frame);
-        // 创建专用于显示锥桶检测的副本
-        auto cone_display = frame.clone();
-        ConeDetector::drawDetectedCones(cone_display, true);
-        ConeDetector::drawDetectedRedCones(cone_display);
+        // auto cones = ConeDetector::detectCones(frame);
+        // auto red_cones = ConeDetector::detectRedCones(frame);
+        // // 创建专用于显示锥桶检测的副本
+        // auto cone_display = frame.clone();
+        // ConeDetector::drawDetectedCones(cone_display, true);
+        // ConeDetector::drawDetectedRedCones(cone_display);
 
         // 显示锥桶检测结果窗口（大窗口，便于观察）
-        cv::imshow("Cone Detection", cone_display);
+        // cv::imshow("Cone Detection", cone_display);
         // cv::imshow("Bin Cones", cone_frame);
         // auto error = ConeDetector::getError();
         // spdlog::info("Current Cone Error: {}", error);
         // Garage::Update(frame);
-        auto ret = ConeDetector::detectConeGuideTail(frame, 150.0f, true);
+        const auto ret = ConeDetector::detectConeGuideTail(frame, 35.0f, true);
         std::cout << "Guide Tail Detected: " << (ret ? "YES" : "NO") << std::endl;
         // 按键处理 - 暂停时使用较短延迟以保证响应性，播放时使用配置的延迟
         auto waitKeyTime = isPaused ? 10 : Garage::wait_time;
