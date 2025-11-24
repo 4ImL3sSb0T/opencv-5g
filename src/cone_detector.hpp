@@ -787,7 +787,11 @@ namespace ConeDetector
         cv::Mat frame = raw_frame.clone();
         cv::resize(frame, frame, ::Size(frame.cols / 2, frame.rows / 2));
         cv::Mat line_image = cv::Mat::zeros(frame.size(), CV_8UC1);
-        cv::Mat draw = frame.clone();
+        const bool enable_debug_visualization = isShowDebugImg;
+        cv::Mat draw;
+        if (enable_debug_visualization) {
+            draw = frame.clone();
+        }
         const int lane_y_offset = frame.rows / 3; // 仅在屏幕下 2/3 区域寻找白线（过滤天空噪声）
         const cv::Rect lane_roi_rect(0, lane_y_offset, frame.cols, frame.rows - lane_y_offset);
         if (lane_roi_rect.height <= 0) {
@@ -890,7 +894,7 @@ namespace ConeDetector
             right_polyline.clear();
         }
 
-        if (!track_mask.empty()) {
+        if (enable_debug_visualization && !track_mask.empty()) {
             cv::Mat color_mask(draw.size(), draw.type(), cv::Scalar(0, 0, 0));
             color_mask.setTo(cv::Scalar(0, 120, 255), track_mask);
             cv::addWeighted(draw, 1.0, color_mask, 0.35, 0, draw);
@@ -936,14 +940,16 @@ namespace ConeDetector
                     }
                 }
 
-                // 绘制边框：绿色表示符合条件，红色表示不符合
-                cv::Scalar color = is_valid ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
-                cv::rectangle(draw, rect, color, 2);
+                if (enable_debug_visualization) {
+                    // 绘制边框：绿色表示符合条件，红色表示不符合
+                    cv::Scalar color = is_valid ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+                    cv::rectangle(draw, rect, color, 2);
 
-                // 添加面积信息
-                std::string area_text = "A:" + std::to_string(static_cast<int>(area));
-                cv::putText(draw, area_text, cv::Point(rect.x, rect.y - 5),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.4, color, 1);
+                    // 添加面积信息
+                    std::string area_text = "A:" + std::to_string(static_cast<int>(area));
+                    cv::putText(draw, area_text, cv::Point(rect.x, rect.y - 5),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.4, color, 1);
+                }
 
                 if (is_valid) {
                     count++;
@@ -952,14 +958,14 @@ namespace ConeDetector
             }
         }
 
-        if (!track_mask.empty()) {
+        if (enable_debug_visualization && !track_mask.empty()) {
             std::string roi_area_text = "ROI Cone Area: " + std::to_string(static_cast<int>(roi_cone_area));
             cv::putText(draw, roi_area_text, cv::Point(10, 55),
                 cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 200, 255), 2);
         }
 
         // 显示结果
-        if (isShowDebugImg) {
+        if (enable_debug_visualization) {
             std::string result_text = "Valid Cones: " + std::to_string(count) + "/" + std::to_string(contours.size());
             cv::putText(draw, result_text, cv::Point(10, 30),
                 cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 0), 2);

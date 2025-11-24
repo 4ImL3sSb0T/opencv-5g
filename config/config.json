@@ -74,7 +74,7 @@
 
     },
     "wait_time": 1,
-    "path": "../img/guided_full.mp4"
+    "path": "../img/left - Trim.mp4"
   },
   "motor": {
     "target_speed": 0
