@@ -125,7 +125,11 @@ int main()
         // auto error = ConeDetector::getError();
         // spdlog::info("Current Cone Error: {}", error);
         // Garage::Update(frame);
+        auto start = std::chrono::high_resolution_clock::now();
         const auto ret = ConeDetector::detectConeGuideTail(frame, 30.0f, true);
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::micro> elapsed = end - start;
+        std::cout << "Detection Time: " << elapsed.count() << " micro" << std::endl;
         std::cout << "Guide Tail Detected: " << (ret ? "YES" : "NO") << std::endl;
         // 按键处理 - 暂停时使用较短延迟以保证响应性，播放时使用配置的延迟
         auto waitKeyTime = isPaused ? 10 : Garage::wait_time;
