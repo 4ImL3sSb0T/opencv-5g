@@ -21,6 +21,7 @@ add_executable(trace src/trace.cpp src/json.hpp src/config.hpp src/garage.hpp sr
 
 add_executable(onnx_test src/onnx_test.cpp src/onnx_inference.hpp)
 add_executable(arrow_test src/car/arrow_test.cpp src/car/ArrowDetector.cpp)
+add_executable(ab_test src/car/ab_test.cpp src/car/ABDetector.cpp)
 
 # YOLO推理测试程序
 add_executable(test_yolo_infer src/car/test_yolo.cpp src/car/yolo_detector.cpp src/car/yolo_detector.hpp)
@@ -36,6 +37,7 @@ target_link_libraries(trace ${OpenCV_LIBS}
 
 target_link_libraries(onnx_test ${OpenCV_LIBS})
 target_link_libraries(arrow_test ${OpenCV_LIBS})
+target_link_libraries(ab_test ${OpenCV_LIBS})
 
 # YOLO推理测试程序链接
 target_link_libraries(test_yolo_infer ${OpenCV_LIBS} ${ONNXRUNTIME_LIBS})
@@ -49,3 +51,4 @@ target_include_directories(trace PRIVATE src)
 
 target_include_directories(onnx_test PRIVATE src)
 target_include_directories(arrow_test PRIVATE src)
+target_include_directories(ab_test PRIVATE src)
