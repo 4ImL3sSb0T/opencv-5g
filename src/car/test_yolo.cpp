@@ -55,7 +55,6 @@ void processImage(YoloInfer::YoloDetector& detector, const cv::Mat& image,
         std::cerr << "Empty image!" << std::endl;
         return;
     }
-
     auto t1 = std::chrono::high_resolution_clock::now();
     auto detections = detector.infer(image);
     auto t2 = std::chrono::high_resolution_clock::now();

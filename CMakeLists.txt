@@ -23,7 +23,7 @@ add_executable(onnx_test src/onnx_test.cpp src/onnx_inference.hpp)
 add_executable(arrow_test src/car/arrow_test.cpp src/car/ArrowDetector.cpp)
 
 # YOLO推理测试程序
-add_executable(test_yolo_infer src/test_yolo.cpp src/yolo_detector.cpp src/yolo_detector.hpp)
+add_executable(test_yolo_infer src/car/test_yolo.cpp src/car/yolo_detector.cpp src/car/yolo_detector.hpp)
 
 target_link_libraries(opencv_5g ${OpenCV_LIBS}
         spdlog::spdlog)
