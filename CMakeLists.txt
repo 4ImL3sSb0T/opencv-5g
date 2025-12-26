@@ -2,6 +2,7 @@
 project(opencv_5g)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenCV REQUIRED)
 find_package(spdlog REQUIRED)
