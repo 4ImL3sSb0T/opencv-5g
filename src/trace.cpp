@@ -133,30 +133,32 @@ int main(int argc, char** argv)
         cv::Mat gray_image;
         cv::cvtColor(cropped_image, gray_image, cv::COLOR_BGR2GRAY);
 
+        // 公共预处理：原 image_Q 预处理（双边+高斯）
+        cv::Mat preprocessed_gray;
+        cv::Mat blur_temp;
+        cv::bilateralFilter(gray_image, blur_temp, 7, 60, 60);
+        cv::GaussianBlur(blur_temp, preprocessed_gray, cv::Size(5, 5), 30);
+
         cv::Mat ca;
         cv::Mat binary_img;
         if (preprocessMode == 0)   // 顶帽 + OTSU
         {
             cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(17, 17));
             cv::Mat tophat_img;
-            cv::morphologyEx(gray_image, tophat_img, cv::MORPH_TOPHAT, element);
+            cv::morphologyEx(preprocessed_gray, tophat_img, cv::MORPH_TOPHAT, element);
             cv::normalize(tophat_img, tophat_img, 0, 255, cv::NORM_MINMAX);
 
             cv::threshold(tophat_img, binary_img, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
         }
         else if (preprocessMode == 1)   // 自适应阈值
         {
-            cv::Mat blur;
-            cv::GaussianBlur(gray_image, blur, cv::Size(5, 5), 0);
-            cv::adaptiveThreshold(blur, binary_img, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY, 21, -5);
+            cv::adaptiveThreshold(preprocessed_gray, binary_img, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY, 21, -5);
             cv::medianBlur(binary_img, binary_img, 5);
         }
         else    // 2: 原 image_Q 预处理（双边+高斯+Canny）
         {
-            cv::Mat blur;
-            cv::bilateralFilter(gray_image, blur, 7, 60, 60);
-            cv::GaussianBlur(blur, binary_img, cv::Size(5, 5), 30);
-            // 这里 binary_img 实际是高斯后的灰度
+            // 预处理已在前面完成
+            binary_img = preprocessed_gray.clone();
         }
 
         if (preprocessMode == 2)
