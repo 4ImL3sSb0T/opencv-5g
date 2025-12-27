@@ -9,7 +9,12 @@
 #include <windows.h>
 #endif
 
-int preprocessMode = 0; // 0 顶帽+OTSU，1 自适应阈值，2 原 image_Q 预处理
+int preprocessMode = 0; // 0 顶帽+OTSU，1 自适应阈值，2 原 image_Q 预处理，3 HSV阈值
+
+// HSV 阈值参数
+int hMin = 0, hMax = 180;
+int sMin = 0, sMax = 60;
+int vMin = 160, vMax = 255;
 
 int main(int argc, char** argv)
 {
@@ -45,6 +50,15 @@ int main(int argc, char** argv)
     }
 
     spdlog::info("trace: TUxiang_Init 前半部分调试（预处理+可视化），不含扫线和元素检测");
+
+    // 创建 HSV 调试窗口和滑条
+    cv::namedWindow("HSV Tuning", cv::WINDOW_AUTOSIZE);
+    cv::createTrackbar("H Min", "HSV Tuning", &hMin, 180);
+    cv::createTrackbar("H Max", "HSV Tuning", &hMax, 180);
+    cv::createTrackbar("S Min", "HSV Tuning", &sMin, 255);
+    cv::createTrackbar("S Max", "HSV Tuning", &sMax, 255);
+    cv::createTrackbar("V Min", "HSV Tuning", &vMin, 255);
+    cv::createTrackbar("V Max", "HSV Tuning", &vMax, 255);
 
     // 确定输入源类型
     bool isImageMode = false;
@@ -90,6 +104,8 @@ int main(int argc, char** argv)
     }
 
     cv::Mat frame;
+    bool isPaused = false;
+    bool nextFrame = false;
     while (true)
     {
         if (isImageMode) {
@@ -97,9 +113,12 @@ int main(int argc, char** argv)
             frame = staticImage.clone();
         } else {
             // 视频/摄像头模式：读取下一帧
-            if (!cap.read(frame)) {
-                spdlog::info("End of video stream");
-                break;
+            if (!isPaused || nextFrame) {
+                if (!cap.read(frame)) {
+                    spdlog::info("End of video stream");
+                    break;
+                }
+                nextFrame = false;
             }
         }
 
@@ -141,6 +160,16 @@ int main(int argc, char** argv)
 
         cv::Mat ca;
         cv::Mat binary_img;
+
+        // 默认参数 (对应原 trace.cpp 逻辑)
+        int houghMinLineLength = 25;
+        int houghMaxLineGap = 5;
+        double filterMinAngle1 = -90.0;
+        double filterMaxAngle1 = -18.0;
+        double filterMinAngle2 = 18.0;
+        double filterMaxAngle2 = 90.0;
+        cv::Size dilateKernelSize(2, 2);
+
         if (preprocessMode == 0)   // 顶帽 + OTSU
         {
             cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(17, 17));
@@ -149,44 +178,60 @@ int main(int argc, char** argv)
             cv::normalize(tophat_img, tophat_img, 0, 255, cv::NORM_MINMAX);
 
             cv::threshold(tophat_img, binary_img, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+            cv::Canny(binary_img, ca, 30, 50);
         }
         else if (preprocessMode == 1)   // 自适应阈值
         {
-            cv::adaptiveThreshold(preprocessed_gray, binary_img, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY, 21, -5);
+            cv::adaptiveThreshold(preprocessed_gray, binary_img, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY, 21, -2);
             cv::medianBlur(binary_img, binary_img, 5);
-        }
-        else    // 2: 原 image_Q 预处理（双边+高斯+Canny）
-        {
-            // 预处理已在前面完成
-            binary_img = preprocessed_gray.clone();
-        }
-
-        if (preprocessMode == 2)
-        {
             cv::Canny(binary_img, ca, 30, 50);
         }
-        else
+        else if (preprocessMode == 2)   // 2: Shadow 算法 (增强滤波+高阈值Canny)
         {
-            cv::Canny(binary_img, ca, 50, 150);
+            // Shadow 算法特定预处理
+            cv::Mat blur_shadow;
+            cv::bilateralFilter(gray_image, blur_shadow, 7, 75, 75);
+            cv::GaussianBlur(blur_shadow, binary_img, cv::Size(5, 5), 1.5); // binary_img 用于显示
+            
+            cv::Canny(binary_img, ca, 40, 80);
+
+            // Shadow 算法特定参数
+            houghMinLineLength = 35;
+            houghMaxLineGap = 10;
+            filterMinAngle1 = -75.0;
+            filterMaxAngle1 = -25.0;
+            filterMinAngle2 = 25.0;
+            filterMaxAngle2 = 75.0;
+            dilateKernelSize = cv::Size(3, 3);
+        }
+        else if (preprocessMode == 3)   // 3: HSV 阈值
+        {
+            // HSV 阈值过滤白色
+            // 使用滑条参数
+            cv::inRange(hsv_image, cv::Scalar(hMin, sMin, vMin), cv::Scalar(hMax, sMax, vMax), binary_img);
+            
+            // 形态学开运算去除噪点
+            cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+            cv::morphologyEx(binary_img, binary_img, cv::MORPH_OPEN, kernel);
+            
+            cv::Canny(binary_img, ca, 30, 50);
         }
 
-        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(2, 2));
+        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, dilateKernelSize);
         cv::Mat dilated_ca;
         cv::dilate(ca, dilated_ca, kernel, cv::Point(-1, -1), 1);
 
         std::vector<cv::Vec4i> lines;
-        cv::HoughLinesP(dilated_ca, lines, 1, CV_PI / 180, 70, 25, 5);
+        cv::HoughLinesP(dilated_ca, lines, 1, CV_PI / 180, 70, houghMinLineLength, houghMaxLineGap);
 
         cv::Mat line_image = cv::Mat::zeros(dilated_ca.size(), CV_8UC1);
         std::vector<cv::Vec4i> filtered_lines;
 
-        double min_angle = -90.0;
-        double max_angle = -18.0;
         for (const auto &line : lines)
         {
             double angle_rad = std::atan2(line[3] - line[1], line[2] - line[0]);
             double angle_deg = angle_rad * 180.0 / CV_PI;
-            if (angle_deg >= min_angle && angle_deg <= max_angle)
+            if (angle_deg >= filterMinAngle1 && angle_deg <= filterMaxAngle1)
             {
                 filtered_lines.push_back(line);
             }
@@ -196,13 +241,11 @@ int main(int argc, char** argv)
             cv::line(line_image, cv::Point(line[0], line[1]), cv::Point(line[2], line[3]), cv::Scalar(255), 2, cv::LINE_AA);
         }
 
-        min_angle = 18.0;
-        max_angle = 90.0;
         for (const auto &line : lines)
         {
             double angle_rad = std::atan2(line[3] - line[1], line[2] - line[0]);
             double angle_deg = angle_rad * 180.0 / CV_PI;
-            if (angle_deg >= min_angle && angle_deg <= max_angle)
+            if (angle_deg >= filterMinAngle2 && angle_deg <= filterMaxAngle2)
             {
                 filtered_lines.push_back(line);
             }
@@ -223,15 +266,28 @@ int main(int argc, char** argv)
         cv::imshow("canny", ca);
         cv::imshow("hough_filtered", dilated_ca2);
 
-        int key = cv::waitKey(1);
+        int delay = isPaused ? 0 : 1;
+        int key = cv::waitKey(delay);
         if (key == 'q' || key == 'Q')
         {
             break;
         }
         if (key == 'm' || key == 'M')
         {
-            preprocessMode = (preprocessMode + 1) % 3; // 0 顶帽, 1 自适应, 2 原 image_Q
+            preprocessMode = (preprocessMode + 1) % 4; // 0 顶帽, 1 自适应, 2 原 image_Q, 3 HSV
             spdlog::info("switch preprocess mode to {}", preprocessMode);
+        }
+        if (key == ' ')
+        {
+            isPaused = !isPaused;
+            spdlog::info("Paused: {}", isPaused);
+        }
+        if (key == 'n' || key == 'N')
+        {
+            if (isPaused)
+            {
+                nextFrame = true;
+            }
         }
     }
 

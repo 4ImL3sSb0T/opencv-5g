@@ -1,0 +1,127 @@
+﻿int TUxiang_Init(cv::Mat data)//图像预处理
+{
+    // 将图像的下半部分进行裁剪   240  640
+    banmachuli = data;
+    cv::resize(banmachuli, banmachuli, cv::Size(), 0.5, 0.5);
+    cv::Rect roi_rect(0, (data.rows / 2 - 90 + 70), data.cols, (data.rows / 2.5));
+    //  cv::Rect roi_rect(0, (data.rows / 2 - 90 + 70 - 5), data.cols, (data.rows / 2.5));
+    cv::Mat cropped_image = data(roi_rect);
+    cropped_imageddddd = cropped_image;
+    // 压缩图像尺寸
+    if (!cropped_image.empty())
+    {
+        cv::resize(cropped_image, cropped_image, cv::Size(), 0.5, 0.5);
+    }
+    else
+    {
+        std::cout << "Cropped image is empty!" << std::endl;
+    }
+    writer.write(cropped_image);  // 将帧图像写入视频文件
+    if (blue_Imageflag == 2)  cv::imshow("frame", cropped_image);
+
+    // ======================================
+    // 灰度+滤波逻辑：恢复通用化处理（适配不同赛道）
+    // ======================================
+    cv::Mat gray_image;
+    cv::cvtColor(cropped_image, gray_image, cv::COLOR_BGR2GRAY); // 直接对裁剪图做灰度化
+    cv::Mat blur;
+    // 双边滤波：保持边缘的同时降噪（通用参数适配不同赛道）
+    cv::bilateralFilter(gray_image, blur, 7, 75, 75);
+    cv::Mat gaussian_blur;
+    // 高斯滤波：进一步平滑图像，减少噪点
+    cv::GaussianBlur(blur, gaussian_blur, cv::Size(5, 5), 1.5);
+    // cv::imshow("blur", gaussian_blur);//裁剪后的原图
+
+    // 使用Canny算子进行边缘检测（通用阈值适配不同赛道）
+    cv::Mat ca;
+    cv::Canny(gaussian_blur, ca, 40, 80); // 调整为更通用的阈值，平衡边缘检测灵敏度
+
+    // 定义一个膨胀核
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+    // 对边缘检测后的图像进行膨胀处理
+    cv::Mat dilated_ca;
+    cv::dilate(ca, dilated_ca, kernel, cv::Point(-1, -1), 1);
+
+    // 使用Hough线段检测算法检测线条（通用参数适配不同赛道）
+    std::vector<cv::Vec4i> lines;
+    cv::HoughLinesP(dilated_ca, lines, 1, CV_PI / 180, 70, 35, 10); // 调整为更通用的霍夫线参数
+
+    cv::Mat line_image = cv::Mat::zeros(dilated_ca.size(), CV_8UC1);
+    // 过滤指定范围外的角度=============《《《开始》
+    std::vector<cv::Vec4i> filtered_lines;
+    //先画左线
+    double min_angle = -75;  // 最小角度（以度为单位）
+    double max_angle = -25;  // 最大角度（以度为单位）
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        cv::Vec4i line = lines[i];
+        double angle_rad = atan2(line[3] - line[1], line[2] - line[0]);  // 计算角度（弧度）
+        double angle_deg = angle_rad * 180 / CV_PI;  // 将角度从弧度转换为度
+
+        if (angle_deg >= min_angle && angle_deg <= max_angle) {
+            filtered_lines.push_back(line);
+        }
+    }
+    // 在图像上绘制筛选后的线条
+    for (size_t i = 0; i < filtered_lines.size(); i++)
+    {
+        const cv::Vec4i& line = filtered_lines[i];
+        const cv::Point pt1(line[0], line[1]);
+        const cv::Point pt2(line[2], line[3]);
+        cv::line(line_image, pt1, pt2, cv::Scalar(255), 2, cv::LINE_AA);
+    }
+    //再画右线
+    min_angle = 25;  // 最小角度（以度为单位）
+    max_angle = 75;  // 最大角度（以度为单位）
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        cv::Vec4i line = lines[i];
+        double angle_rad = atan2(line[3] - line[1], line[2] - line[0]);  // 计算角度（弧度）
+        double angle_deg = angle_rad * 180 / CV_PI;  // 将角度从弧度转换为度
+
+        if (angle_deg >= min_angle && angle_deg <= max_angle)
+        {
+            filtered_lines.push_back(line);
+        }
+    }
+    // 在图像上绘制筛选后的线条
+    for (size_t i = 0; i < filtered_lines.size(); i++)
+    {
+        const cv::Vec4i& line = filtered_lines[i];
+        const cv::Point pt1(line[0], line[1]);
+        const cv::Point pt2(line[2], line[3]);
+        cv::line(line_image, pt1, pt2, cv::Scalar(255), 2, cv::LINE_AA);
+    }
+    // 最后对图像进行膨胀处理
+    // 膨胀核
+    cv::Mat kernel2 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(2, 2));
+    // 对边缘检测后的图像进行膨胀处理
+    cv::Mat dilated_ca2;
+    cv::dilate(line_image, dilated_ca2, kernel2, cv::Point(-1, -1), 1);
+    // 过滤指定范围外的角度=============《《《结束》》
+    //=========================================>>>>>>>>>>>
+    // 扫线
+    int car_error = Image_Handle22(dilated_ca2, cropped_image, dilated_ca); // 第二个参数从hsv_image改回cropped_image
+    //测试
+    //cv::imshow("data", gaussian_blur);
+    //if(CA_Imageflag == 1)
+    // cv::imshow("ca", ca);
+    if (saidao == 1)
+    {
+        cv::imshow("dilated_ca2", dilated_ca2);
+        cv::imshow("膨胀后的ca", dilated_ca);
+        // 移除HSV相关的调试窗口
+    }
+    if (saidao1 == 1)
+    {
+        cv::imshow("膨胀后的ca", dilated_ca);
+    }
+    if (saidao == 1)
+    {
+        cv::imshow("膨胀后的ca", dilated_ca);
+    }
+
+    return car_error;
+}
+//优化了一些参数，但是不一定有空
