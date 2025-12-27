@@ -11,8 +11,28 @@
 #define int32 long  
 #define ROW  96 - 20  
 #define COL 640   
-#define MIDVALUE 320/2  
+#define MIDVALUE 320/2
 #define BIANJIEadd 8   //边界补线误差（差的多补的弯道比较好，默认是2）、、、、、、、、、、、、、、会不会v和
+
+// ==================== 霍夫直线跟踪相关定义 ====================
+// 霍夫直线跟踪参数结构体
+struct TrackedLine {
+    cv::Vec4i line;           // 直线段 (x1, y1, x2, y2)
+    float slope;              // 斜率
+    cv::Point2f midpoint;     // 中点
+    float length;             // 长度
+    int age;                  // 跟踪帧数
+    float confidence;         // 置信度
+};
+
+// 霍夫直线跟踪全局变量（在image_Q.cpp中定义）
+extern TrackedLine leftBoundaryLine;   // 左边界线
+extern TrackedLine rightBoundaryLine;  // 右边界线
+extern bool leftLineInitialized;
+extern bool rightLineInitialized;
+extern int edgeSearchMode;  // 边界搜索模式: 0=原始算法, 1=霍夫直线跟踪
+// ================================================================
+
 extern int find_XYdata_second[3];//障碍物坐标
 void printQ(const std::string& str, int number);
 using namespace std;
@@ -40,6 +60,14 @@ void Curve1_Fitting(float* Ka, float* Kb, int16* Start, int16* Line_Add, int16 M
 void Curve2_Fitting(float* Ka, float* Kb, uint8 Start, uint8 End, int16* Line, int16 Mode, int16 num);
 void Curve3_Fitting(float* Ka, float* Kb, uint8 Start, uint8 End, int16* Line, int16 Mode);//环岛检测专用，最正规的求线
 void Earge_Search_Mid(int16 i, cv::Mat data, int16 Mid, int16 Left_Min, int16 Right_Max, int16* Left_Line, int16* Right_Line, int16* Left_Add_Line, int16* Right_Add_Line, int mods);
+
+// 霍夫直线跟踪函数声明
+TrackedLine extractLineFeatures(const cv::Vec4i& line);
+float calculateLineSimilarity(const TrackedLine& line1, const TrackedLine& line2);
+int findBestMatchingLine(const std::vector<cv::Vec4i>& lines, const TrackedLine& previousLine, bool isLeftBoundary);
+void initializeBoundaryLines(const std::vector<cv::Vec4i>& lines);
+void Edge_Search_HoughTracking(const std::vector<cv::Vec4i>& lines, int imageHeight);
+
 int16 First_Line_Handle(cv::Mat data);
 void Mid_Line_Repair(void);//中线修复;
 int Image_Handle22(cv::Mat data, cv::Mat YUANTU, cv::Mat BANMA);  //图像320 *120

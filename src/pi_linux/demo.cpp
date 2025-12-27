@@ -31,6 +31,12 @@ extern "C" {
 int speed = -1200;
 //==========================定义变量区==========================//
 
+// ========== 命令行参数控制变量 ==========
+int param_ab_direction = 0;  // AB方向参数: 0=使用YOLO检测, 1=强制左转(a), 2=强制右转(b)
+int param_lr_direction = 0;  // 箭头方向参数: 0=使用YOLO检测, 1=强制左转(l), 2=强制右转(r)
+int param_algorithm_mode = 0;  // 算法模式参数: 0=原始算法(默认), 1=霍夫直线跟踪
+// ========================================
+
 int errchange1 = 0;
 int tiaosu = 1200;
 int fangxiang = 1;
@@ -700,6 +706,12 @@ int stopflag1=0;
 
 int run(void) {
 	int debug_mode = 0;
+
+	// ========== 应用命令行参数到图像处理模块 ==========
+	edgeSearchMode = param_algorithm_mode;  // 设置边界搜索算法模式
+	std::cout << "[算法配置] edgeSearchMode = " << edgeSearchMode << std::endl;
+	// ===================================================
+
 	// 电机舵机初始化================================================================
 	gpioTerminate();
 	yuntaiInit(); // 云台初始化
@@ -892,6 +904,18 @@ if (yuyinflag == 2) {
 
             // ========== YOLO AB检测 ==========
            if (yoloABDetectEnable == 1) {
+                // ========== 检查是否使用参数强制指定方向 ==========
+                if (param_ab_direction != 0) {
+                    // 使用命令行参数强制指定方向
+                    yoloABOver = 1;
+                    left_or_right = param_ab_direction;  // 1=左转(A), 2=右转(B)
+                    yoloABDetectEnable = 0;  // 关闭检测
+                    std::cout << "==> [参数模式] 强制AB方向: " << (param_ab_direction == 1 ? "左转(A)" : "右转(B)") << std::endl;
+                    Aflag = 0;
+                    Bflag = 0;
+                    ABcount = 0;
+                } else {
+                    // 正常模式：使用YOLO检测
                 // 使用 frame2（第二个摄像头）进行检测
 				std::cout << "YOLO检测AB" << std::endl;
                 auto detections = yoloABDetector.infer(frame2);
@@ -969,10 +993,25 @@ if (yuyinflag == 2) {
 				// 	ABcount=0;
 				// 	yoloABDetectEnable=0;  // 检测完成，关闭检测
 				// }
+                }  // 结束YOLO检测else分支
             }
 
             // ========== YOLO 箭头检测 ==========
             if (yoloArrowDetectEnable == 1) {
+                // ========== 检查是否使用参数强制指定方向 ==========
+                if (param_lr_direction != 0) {
+                    // 使用命令行参数强制指定方向
+                    yoloArrowResult = param_lr_direction;  // 1=左箭头, 2=右箭头
+                    LRoutput114 = param_lr_direction;
+                    yoloArrowDetectEnable = 0;  // 关闭检测
+                    yuyinflag = 2;  // 允许播放语音
+                    std::cout << "==> [参数模式] 强制箭头方向: " << (param_lr_direction == 1 ? "左转(L)" : "右转(R)") << std::endl;
+                    std::cout << "开始播放语音" << std::endl;
+                    Lflag = 0;
+                    Rflag = 0;
+                    LRcount = 0;
+                } else {
+                    // 正常模式：使用YOLO检测
 				manbastart = 0;
                 auto arrowDetections = yoloArrowDetector.infer(frame2);
                 
@@ -1027,6 +1066,7 @@ if (yuyinflag == 2) {
 // 					yuyinflag = 2; // 2是允许
 // 					std::cout << "开始播放语音" << std::endl;
 // 				}
+                }  // 结束YOLO箭头检测else分支
             }
 
 
@@ -1542,7 +1582,60 @@ int timedelayIT(void) // 定时器
 	return 0;
 }
 
-int main(void) {
+int main(int argc, char** argv) {
+	// ========== 命令行参数解析 ==========
+	// 参数格式: sudo ./demo [参数字符串]
+	// 例如: sudo ./demo al1  表示 a(左转AB) + l(左转箭头) + 1(霍夫跟踪)
+	//       sudo ./demo br0  表示 b(右转AB) + r(右转箭头) + 0(原始算法)
+
+	if (argc > 1) {
+		std::string params = argv[1];
+		std::cout << "收到参数: " << params << std::endl;
+
+		for (char c : params) {
+			switch(c) {
+				case 'a':
+				case 'A':
+					param_ab_direction = 1;  // 强制左转
+					std::cout << "  [AB方向] 强制左转(A)" << std::endl;
+					break;
+				case 'b':
+				case 'B':
+					param_ab_direction = 2;  // 强制右转
+					std::cout << "  [AB方向] 强制右转(B)" << std::endl;
+					break;
+				case 'l':
+				case 'L':
+					param_lr_direction = 1;  // 强制左转
+					std::cout << "  [箭头方向] 强制左转(L)" << std::endl;
+					break;
+				case 'r':
+				case 'R':
+					param_lr_direction = 2;  // 强制右转
+					std::cout << "  [箭头方向] 强制右转(R)" << std::endl;
+					break;
+				case '0':
+					param_algorithm_mode = 0;  // 原始算法
+					std::cout << "  [算法模式] 原始边界搜索算法" << std::endl;
+					break;
+				case '1':
+					param_algorithm_mode = 1;  // 霍夫跟踪
+					std::cout << "  [算法模式] 霍夫直线跟踪算法" << std::endl;
+					break;
+				default:
+					std::cout << "  [警告] 未知参数: " << c << std::endl;
+					break;
+			}
+		}
+	} else {
+		std::cout << "未提供参数，使用默认配置:" << std::endl;
+		std::cout << "  [AB方向] 使用YOLO检测" << std::endl;
+		std::cout << "  [箭头方向] 使用YOLO检测" << std::endl;
+		std::cout << "  [算法模式] 原始边界搜索算法(默认)" << std::endl;
+	}
+	std::cout << "========================================" << std::endl;
+	// ========================================
+
 	std::thread thread1(run);
 
 	std::thread thread2(timedelayIT); // 标志识别线程

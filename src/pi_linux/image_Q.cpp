@@ -49,6 +49,14 @@ int banma222 = 0;
 int bizhangclock =1;
 int A4shibie = 1;//A4识别标志
 
+// ==================== 霍夫直线跟踪全局变量 ====================
+TrackedLine leftBoundaryLine;   // 左边界线
+TrackedLine rightBoundaryLine;  // 右边界线
+bool leftLineInitialized = false;
+bool rightLineInitialized = false;
+int edgeSearchMode = 0;  // 边界搜索模式: 0=原始算法(默认), 1=霍夫直线跟踪
+// ================================================================
+
 //int leftrightflag = 3;//左右换道标志位  1箭头右  2箭头左  3未识别
 //int yindaoqustart = 0;//引导区开始标志位
 int yindaoquenable=0;//引导区避障使能标志
@@ -158,6 +166,232 @@ void Curve2_Fitting(float* Ka, float* Kb, uint8 Start, uint8 End, int16* Line, i
         *Kb = 1.0 * Line[End] - (*Ka * End);
     }
 }
+
+// ==================== 霍夫直线跟踪算法实现 ====================
+
+/**
+ * @brief 计算直线特征
+ * @param line 霍夫直线段
+ * @return TrackedLine 包含特征的结构体
+ */
+TrackedLine extractLineFeatures(const cv::Vec4i& line) {
+    TrackedLine tracked;
+    tracked.line = line;
+
+    // 计算斜率
+    float dx = line[2] - line[0];
+    float dy = line[3] - line[1];
+    tracked.slope = (dx != 0) ? (dy / dx) : 999999.0f;  // 防止除零
+
+    // 计算中点
+    tracked.midpoint = cv::Point2f((line[0] + line[2]) / 2.0f, (line[1] + line[3]) / 2.0f);
+
+    // 计算长度
+    tracked.length = std::sqrt(dx * dx + dy * dy);
+
+    // 初始化跟踪信息
+    tracked.age = 0;
+    tracked.confidence = 1.0f;
+
+    return tracked;
+}
+
+/**
+ * @brief 计算两条直线的相似度距离
+ * @param line1 第一条直线
+ * @param line2 第二条直线
+ * @return 距离值（越小越相似）
+ */
+float calculateLineSimilarity(const TrackedLine& line1, const TrackedLine& line2) {
+    // 斜率相似度
+    float slopeDiff = std::abs(line1.slope - line2.slope);
+    float slopeSimilarity = std::exp(-slopeDiff * 0.1f);  // 指数衰减
+
+    // 位置相似度（基于中点距离）
+    float distX = line1.midpoint.x - line2.midpoint.x;
+    float distY = line1.midpoint.y - line2.midpoint.y;
+    float distance = std::sqrt(distX * distX + distY * distY);
+    float positionSimilarity = std::exp(-distance / 50.0f);  // 50像素为参考距离
+
+    // 长度相似度
+    float lengthRatio = std::min(line1.length, line2.length) / std::max(line1.length, line2.length);
+
+    // 加权组合（可调整权重）
+    float similarity = 0.4f * slopeSimilarity + 0.4f * positionSimilarity + 0.2f * lengthRatio;
+
+    return 1.0f - similarity;  // 返回距离（越小越好）
+}
+
+/**
+ * @brief 从霍夫直线中找到最佳匹配的边界线
+ * @param lines 霍夫直线数组
+ * @param previousLine 上一帧的边界线
+ * @param isLeftBoundary true为左边界，false为右边界
+ * @return 最佳匹配的直线索引，-1表示未找到
+ */
+int findBestMatchingLine(const std::vector<cv::Vec4i>& lines, const TrackedLine& previousLine, bool isLeftBoundary) {
+    if (lines.empty()) return -1;
+
+    int bestIdx = -1;
+    float bestScore = 999999.0f;
+
+    for (size_t i = 0; i < lines.size(); i++) {
+        TrackedLine candidate = extractLineFeatures(lines[i]);
+
+        // 角度过滤：左边界期望负斜率，右边界期望正斜率
+        float angle = std::atan2(lines[i][3] - lines[i][1], lines[i][2] - lines[i][0]) * 180.0 / CV_PI;
+
+        if (isLeftBoundary) {
+            // 左边界：角度应该在 -75° 到 -25° 之间
+            if (angle < -75 || angle > -25) continue;
+        } else {
+            // 右边界：角度应该在 25° 到 75° 之间
+            if (angle < 25 || angle > 75) continue;
+        }
+
+        // 计算相似度
+        float score = calculateLineSimilarity(candidate, previousLine);
+
+        if (score < bestScore) {
+            bestScore = score;
+            bestIdx = i;
+        }
+    }
+
+    return bestIdx;
+}
+
+/**
+ * @brief 从霍夫直线中初始化左右边界
+ * @param lines 霍夫直线数组
+ */
+void initializeBoundaryLines(const std::vector<cv::Vec4i>& lines) {
+    if (lines.empty()) return;
+
+    std::vector<TrackedLine> leftCandidates;
+    std::vector<TrackedLine> rightCandidates;
+
+    // 按角度分类左右线
+    for (const auto& line : lines) {
+        float angle = std::atan2(line[3] - line[1], line[2] - line[0]) * 180.0 / CV_PI;
+        TrackedLine tracked = extractLineFeatures(line);
+
+        if (angle >= -75 && angle <= -25) {
+            leftCandidates.push_back(tracked);
+        } else if (angle >= 25 && angle <= 75) {
+            rightCandidates.push_back(tracked);
+        }
+    }
+
+    // 选择最左边的线作为左边界（x坐标最小）
+    if (!leftCandidates.empty()) {
+        auto leftMost = std::min_element(leftCandidates.begin(), leftCandidates.end(),
+            [](const TrackedLine& a, const TrackedLine& b) {
+                return a.midpoint.x < b.midpoint.x;
+            });
+        leftBoundaryLine = *leftMost;
+        leftLineInitialized = true;
+    }
+
+    // 选择最右边的线作为右边界（x坐标最大）
+    if (!rightCandidates.empty()) {
+        auto rightMost = std::max_element(rightCandidates.begin(), rightCandidates.end(),
+            [](const TrackedLine& a, const TrackedLine& b) {
+                return a.midpoint.x < b.midpoint.x;
+            });
+        rightBoundaryLine = *rightMost;
+        rightLineInitialized = true;
+    }
+}
+
+/**
+ * @brief 边界搜索函数（霍夫直线跟踪算法）
+ * @param lines 霍夫直线数组
+ * @param imageHeight 图像高度
+ */
+void Edge_Search_HoughTracking(const std::vector<cv::Vec4i>& lines, int imageHeight) {
+    // 第一帧：初始化边界线
+    if (!leftLineInitialized || !rightLineInitialized) {
+        initializeBoundaryLines(lines);
+
+        // 如果仍然未初始化，使用默认边界
+        if (!leftLineInitialized) {
+            leftBoundaryLine.line = cv::Vec4i(10, imageHeight, 10, 0);
+            leftBoundaryLine.midpoint = cv::Point2f(10, imageHeight / 2);
+            leftBoundaryLine.slope = 999999.0f;
+            leftLineInitialized = true;
+        }
+        if (!rightLineInitialized) {
+            rightBoundaryLine.line = cv::Vec4i(COL-10, imageHeight, COL-10, 0);
+            rightBoundaryLine.midpoint = cv::Point2f(COL-10, imageHeight / 2);
+            rightBoundaryLine.slope = 999999.0f;
+            rightLineInitialized = true;
+        }
+    }
+
+    // 后续帧：跟踪并更新边界线
+    if (!lines.empty()) {
+        // 查找最佳匹配的左边界
+        int leftIdx = findBestMatchingLine(lines, leftBoundaryLine, true);
+        if (leftIdx >= 0) {
+            leftBoundaryLine = extractLineFeatures(lines[leftIdx]);
+            leftBoundaryLine.age++;
+            leftBoundaryLine.confidence = std::min(1.0f, leftBoundaryLine.confidence + 0.1f);
+        } else {
+            // 未找到匹配，降低置信度
+            leftBoundaryLine.confidence *= 0.9f;
+        }
+
+        // 查找最佳匹配的右边界
+        int rightIdx = findBestMatchingLine(lines, rightBoundaryLine, false);
+        if (rightIdx >= 0) {
+            rightBoundaryLine = extractLineFeatures(lines[rightIdx]);
+            rightBoundaryLine.age++;
+            rightBoundaryLine.confidence = std::min(1.0f, rightBoundaryLine.confidence + 0.1f);
+        } else {
+            // 未找到匹配，降低置信度
+            rightBoundaryLine.confidence *= 0.9f;
+        }
+    }
+
+    // 将霍夫直线转换为边界点数组
+    for (int i = ROW - 1; i >= 9; i -= 2) {
+        // 计算左边界在当前行的x坐标
+        int y = i;
+        if (leftBoundaryLine.slope != 999999.0f) {
+            float x = leftBoundaryLine.midpoint.x +
+                     (y - leftBoundaryLine.midpoint.y) / leftBoundaryLine.slope;
+            Left_Line[i] = Limit_Protect(static_cast<int>(x), 1, COL - 1);
+            Left_Add_Line[i] = Left_Line[i];
+            Left_Add_Flag[i] = 0;
+        } else {
+            Left_Line[i] = static_cast<int>(leftBoundaryLine.midpoint.x);
+            Left_Add_Line[i] = Left_Line[i];
+            Left_Add_Flag[i] = 0;
+        }
+
+        // 计算右边界在当前行的x坐标
+        if (rightBoundaryLine.slope != 999999.0f) {
+            float x = rightBoundaryLine.midpoint.x +
+                     (y - rightBoundaryLine.midpoint.y) / rightBoundaryLine.slope;
+            Right_Line[i] = Limit_Protect(static_cast<int>(x), 1, COL - 1);
+            Right_Add_Line[i] = Right_Line[i];
+            Right_Add_Flag[i] = 0;
+        } else {
+            Right_Line[i] = static_cast<int>(rightBoundaryLine.midpoint.x);
+            Right_Add_Line[i] = Right_Line[i];
+            Right_Add_Flag[i] = 0;
+        }
+
+        // 计算中线
+        Mid_Line[i] = (Left_Add_Line[i] + Right_Add_Line[i]) / 2;
+        Road_Width_Real[i] = Right_Line[i] - Left_Line[i];
+        Road_Width_Add[i] = Right_Add_Line[i] - Left_Add_Line[i];
+    }
+}
+
+// ==================== 霍夫直线跟踪算法实现结束 ====================
+
 /*-------------------------------------------------------------------------------------------------------------------
 函数：曲线拟合3
 说明：先用两点法确定Ka,Kb然后计算出第i行的补线横坐标
@@ -534,12 +768,24 @@ int Image_Handle22(cv::Mat data,cv::Mat YUANTU, cv::Mat BANMA)  //图像320 *120
 
     /***************************** 第一行特殊处理 **************************/
     int y = First_Line_Handle(data);//虚拟首行中点
+
     /*处理普通赛道开始*/
-    for (i = ROW-1; i >= 9; i -= 2)                  // 仅处理前40行图像，隔行后仅处理20行数据
-    {
-        Line_Count = i;
-        Earge_Search_Mid(i, data, Mid_Line[i + 2], 1, COL - 1, Left_Line, Right_Line, Left_Add_Line, Right_Add_Line, 0);//搜寻并保存边界数据
+    // ========== 边界搜索算法选择 ==========
+    if (edgeSearchMode == 1) {
+        // 霍夫直线跟踪算法
+        Edge_Search_HoughTracking(lines, dilated_ca2.rows);
+        std::cout << "[边界搜索] 使用霍夫直线跟踪算法" << std::endl;
+    } else {
+        // 原始算法：逐行扫描
+        for (i = ROW-1; i >= 9; i -= 2)                  // 仅处理前40行图像，隔行后仅处理20行数据
+        {
+            Line_Count = i;
+            Earge_Search_Mid(i, data, Mid_Line[i + 2], 1, COL - 1, Left_Line, Right_Line, Left_Add_Line, Right_Add_Line, 0);//搜寻并保存边界数据
+        }
+        std::cout << "[边界搜索] 使用原始扫线算法" << std::endl;
     }
+    // ========================================
+
     LinearInterpolation();//中线线性插值
     // ---------------------------------------------
     if (XUNJI_Imageflag == 1)//图像显示

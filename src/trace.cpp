@@ -23,8 +23,8 @@
 #define MIDVALUE 160  // COL/2
 
 // ==================== 全局变量 ====================
-int preprocessMode = 0; // 0 顶帽+OTSU，1 自适应阈值，2 Shadow算法
-int edgeSearchMode = 0;  // 0 原始算法，1 改进算法（多候选边界），2 霍夫直线跟踪
+int preprocessMode = 2; // 0 顶帽+OTSU，1 自适应阈值，2 Shadow算法
+int edgeSearchMode = 2;  // 0 原始算法，1 改进算法（多候选边界），2 霍夫直线跟踪
 
 // 帧率控制参数
 int targetFPS = 30;  // 目标帧率，范围 1-60
@@ -676,6 +676,7 @@ int main(int argc, char** argv)
     int cameraIndex = -1;
     std::string videoPath;
     std::string imagePath;
+    bool autoResize = true;  // 是否自动调整分辨率为640x480
 
     // 添加选项
     auto* cameraOpt = app.add_option("-c,--camera", cameraIndex, "Camera device index (e.g., 0, 1)")
@@ -684,6 +685,9 @@ int main(int argc, char** argv)
         ->check(CLI::ExistingFile);
     auto* imageOpt = app.add_option("-i,--image", imagePath, "Path to image file")
         ->check(CLI::ExistingFile);
+
+    app.add_flag("--no-resize,!--resize", autoResize,
+                 "Disable automatic resizing to 640x480 (default: enabled)");
 
     // 设置互斥：只能选择摄像头、视频或图片其中之一
     cameraOpt->excludes(videoOpt)->excludes(imageOpt);
@@ -725,6 +729,14 @@ int main(int argc, char** argv)
         }
         isImageMode = true;
         spdlog::info("Input mode: Image file - {}", imagePath);
+        spdlog::info("Image resolution: {}x{}", staticImage.cols, staticImage.rows);
+
+        // 如果图片分辨率不是640x480，resize
+        if (staticImage.cols != 640 || staticImage.rows != 480) {
+            spdlog::warn("Image resolution is not 640x480, resizing...");
+            cv::resize(staticImage, staticImage, cv::Size(640, 480));
+            spdlog::info("Resized to: 640x480");
+        }
     }
     else if (!videoPath.empty()) {
         // 视频文件模式
@@ -733,7 +745,17 @@ int main(int argc, char** argv)
             spdlog::error("Failed to open video file: {}", videoPath);
             return -1;
         }
+
+        // 获取视频分辨率
+        int videoWidth = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
+        int videoHeight = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
         spdlog::info("Input mode: Video file - {}", videoPath);
+        spdlog::info("Video resolution: {}x{}", videoWidth, videoHeight);
+
+        // 如果视频分辨率不是640x480，记录警告（稍后在读取时resize）
+        if (videoWidth != 640 || videoHeight != 480) {
+            spdlog::warn("Video resolution is not 640x480, will resize each frame to 640x480");
+        }
     }
     else if (cameraIndex >= 0) {
         // 摄像头模式
@@ -742,7 +764,17 @@ int main(int argc, char** argv)
             spdlog::error("Failed to open camera index: {}", cameraIndex);
             return -1;
         }
+
+        // 获取摄像头分辨率
+        int camWidth = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
+        int camHeight = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
         spdlog::info("Input mode: Camera - index {}", cameraIndex);
+        spdlog::info("Camera resolution: {}x{}", camWidth, camHeight);
+
+        // 如果摄像头分辨率不是640x480，记录警告
+        if (camWidth != 640 || camHeight != 480) {
+            spdlog::warn("Camera resolution is not 640x480, will resize each frame to 640x480");
+        }
     }
     else {
         // 默认：使用摄像头 0
@@ -751,7 +783,17 @@ int main(int argc, char** argv)
             spdlog::error("Failed to open default camera (index 0)");
             return -1;
         }
+
+        // 获取摄像头分辨率
+        int camWidth = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
+        int camHeight = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
         spdlog::info("Input mode: Default camera (index 0)");
+        spdlog::info("Camera resolution: {}x{}", camWidth, camHeight);
+
+        // 如果摄像头分辨率不是640x480，记录警告
+        if (camWidth != 640 || camHeight != 480) {
+            spdlog::warn("Camera resolution is not 640x480, will resize each frame to 640x480");
+        }
     }
 
     cv::Mat frame;
@@ -781,6 +823,11 @@ int main(int argc, char** argv)
         if (frame.empty())
         {
             continue;
+        }
+
+        // 确保帧分辨率为640x480（循迹算法的最佳工作分辨率）
+        if (autoResize && (frame.cols != 640 || frame.rows != 480)) {
+            cv::resize(frame, frame, cv::Size(640, 480));
         }
 
         // ========== 图像预处理 ==========
@@ -904,6 +951,61 @@ int main(int argc, char** argv)
         // ========== 可视化 ==========
         cv::Mat track_display = dilated_ca2.clone();
         Draw_Track_Result(track_display, dilated_ca2);
+
+        // 模式2：霍夫直线选择可视化
+        if (edgeSearchMode == 2) {
+            cv::Mat hough_selection;
+            cv::cvtColor(cropped_image, hough_selection, cv::COLOR_BGR2GRAY);
+            cv::cvtColor(hough_selection, hough_selection, cv::COLOR_GRAY2BGR);
+
+            // 绘制所有检测到的霍夫直线（灰色细线）
+            for (const auto& line : lines) {
+                cv::line(hough_selection,
+                        cv::Point(line[0], line[1]),
+                        cv::Point(line[2], line[3]),
+                        cv::Scalar(128, 128, 128), 1, cv::LINE_AA);
+            }
+
+            // 高亮显示被选中的左边界线（亮绿色粗线）
+            if (leftLineInitialized) {
+                cv::line(hough_selection,
+                        cv::Point(leftBoundaryLine.line[0], leftBoundaryLine.line[1]),
+                        cv::Point(leftBoundaryLine.line[2], leftBoundaryLine.line[3]),
+                        cv::Scalar(0, 255, 0), 4, cv::LINE_AA);
+
+                // 显示左边界信息
+                std::string leftInfo = cv::format("LEFT: conf=%.2f age=%d",
+                                                  leftBoundaryLine.confidence,
+                                                  leftBoundaryLine.age);
+                cv::putText(hough_selection, leftInfo, cv::Point(10, 20),
+                           cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
+            }
+
+            // 高亮显示被选中的右边界线（亮蓝色粗线）
+            if (rightLineInitialized) {
+                cv::line(hough_selection,
+                        cv::Point(rightBoundaryLine.line[0], rightBoundaryLine.line[1]),
+                        cv::Point(rightBoundaryLine.line[2], rightBoundaryLine.line[3]),
+                        cv::Scalar(255, 0, 0), 4, cv::LINE_AA);
+
+                // 显示右边界信息
+                std::string rightInfo = cv::format("RIGHT: conf=%.2f age=%d",
+                                                   rightBoundaryLine.confidence,
+                                                   rightBoundaryLine.age);
+                cv::putText(hough_selection, rightInfo, cv::Point(10, 40),
+                           cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 0, 0), 2);
+            }
+
+            // 显示总共检测到的霍夫直线数量
+            std::string linesInfo = cv::format("Total Hough Lines: %d", (int)lines.size());
+            cv::putText(hough_selection, linesInfo, cv::Point(10, 60),
+                       cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 0), 2);
+
+            cv::imshow("hough_selection", hough_selection);
+        } else {
+            // 非模式2时，销毁这个窗口
+            cv::destroyWindow("hough_selection");
+        }
 
         cv::imshow("cropped", cropped_image);
         cv::imshow("binary", binary_img);
