@@ -669,7 +669,7 @@ int TUxiang_Init(cv::Mat data)//图像预处理
     // 过滤指定范围外的角度=============《《《结束》》
     //=========================================>>>>>>>>>>>
     // 扫线
-    int car_error = Image_Handle22(dilated_ca2, cropped_image, dilated_ca); // 第二个参数从hsv_image改回cropped_image
+    int car_error = Image_Handle22(dilated_ca2, cropped_image, dilated_ca, lines); // 传递lines向量
     //测试
     //cv::imshow("data", gaussian_blur);
     //if(CA_Imageflag == 1)
@@ -740,7 +740,7 @@ int stabilize_error(int current_error) {
 
 
 
-int Image_Handle22(cv::Mat data,cv::Mat YUANTU, cv::Mat BANMA)  //图像320 *120
+int Image_Handle22(cv::Mat data,cv::Mat YUANTU, cv::Mat BANMA, const std::vector<cv::Vec4i>& lines)  //图像320 *120
 {
     static int BZ_con[9];
     int errroer_car = 0;
@@ -773,7 +773,7 @@ int Image_Handle22(cv::Mat data,cv::Mat YUANTU, cv::Mat BANMA)  //图像320 *120
     // ========== 边界搜索算法选择 ==========
     if (edgeSearchMode == 1) {
         // 霍夫直线跟踪算法
-        Edge_Search_HoughTracking(lines, dilated_ca2.rows);
+        Edge_Search_HoughTracking(lines, data.rows);
         std::cout << "[边界搜索] 使用霍夫直线跟踪算法" << std::endl;
     } else {
         // 原始算法：逐行扫描

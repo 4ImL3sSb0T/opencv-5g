@@ -70,7 +70,7 @@ void Edge_Search_HoughTracking(const std::vector<cv::Vec4i>& lines, int imageHei
 
 int16 First_Line_Handle(cv::Mat data);
 void Mid_Line_Repair(void);//中线修复;
-int Image_Handle22(cv::Mat data, cv::Mat YUANTU, cv::Mat BANMA);  //图像320 *120
+int Image_Handle22(cv::Mat data, cv::Mat YUANTU, cv::Mat BANMA, const std::vector<cv::Vec4i>& lines = std::vector<cv::Vec4i>());  //图像320 *120
 //图像320 *120
 int error_get(void);
 int BZ_chuli(cv::Mat BZdata);//传入原图
