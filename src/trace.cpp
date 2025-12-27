@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <chrono>
 
 #ifdef _WIN32
 #define NOMINMAX  // 防止Windows.h定义min/max宏
@@ -22,13 +23,11 @@
 #define MIDVALUE 160  // COL/2
 
 // ==================== 全局变量 ====================
-int preprocessMode = 0; // 0 顶帽+OTSU，1 自适应阈值，2 原 image_Q 预处理，3 HSV阈值
+int preprocessMode = 0; // 0 顶帽+OTSU，1 自适应阈值，2 Shadow算法
 int edgeSearchMode = 0;  // 0 原始算法（找到第一个边界就停止），1 改进算法（多候选边界）
 
-// HSV 阈值参数
-int hMin = 0, hMax = 180;
-int sMin = 0, sMax = 60;
-int vMin = 160, vMax = 255;
+// 帧率控制参数
+int targetFPS = 30;  // 目标帧率，范围 1-60
 
 // 循迹相关数据结构
 int16  Left_Line[ROW + 2], Right_Line[ROW + 2];       // 左右边界
@@ -362,17 +361,21 @@ void Draw_Track_Result(cv::Mat& display, const cv::Mat& data)
         cv::circle(display, mid_pt, 2, cv::Scalar(0, 0, 255), -1);
     }
 
-    // 在图像上显示当前模式信息（更大更明显）
+    // 在图像上显示当前模式信息
     std::string mode_text = "Edge Mode: " + std::string(edgeSearchMode == 0 ? "Original" : "Improved");
+    cv::putText(display, mode_text, cv::Point(10, 20),
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 255), 1);
 
-    // 添加黑色背景，让文字更清晰
-    cv::rectangle(display, cv::Point(5, 5), cv::Point(300, 35), cv::Scalar(0, 0, 0), -1);
-
-    // 根据模式使用不同颜色
-    cv::Scalar text_color = edgeSearchMode == 0 ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0);  // 原始=红色, 改进=绿色
-
-    cv::putText(display, mode_text, cv::Point(10, 25),
-                cv::FONT_HERSHEY_SIMPLEX, 0.7, text_color, 2);
+    // 显示预处理模式
+    std::string preprocess_text = "Preprocess: ";
+    switch(preprocessMode) {
+        case 0: preprocess_text += "TopHat+OTSU"; break;
+        case 1: preprocess_text += "Adaptive"; break;
+        case 2: preprocess_text += "Shadow"; break;
+        default: preprocess_text += "Unknown"; break;
+    }
+    cv::putText(display, preprocess_text, cv::Point(10, 40),
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 255), 1);
 }
 
 // ==================== 主函数 ====================
@@ -411,20 +414,18 @@ int main(int argc, char** argv)
 
     spdlog::info("Trace: 图像预处理 + 循迹边界检测 + 可视化调试工具");
     spdlog::info("按键说明:");
-    spdlog::info("  M: 切换预处理模式 (0:顶帽+OTSU, 1:自适应阈值, 2:Shadow算法, 3:HSV阈值)");
+    spdlog::info("  M: 切换预处理模式 (0:顶帽+OTSU, 1:自适应阈值, 2:Shadow算法)");
     spdlog::info("  E: 切换边界搜索模式 (0:原始算法, 1:改进算法-多候选边界)");
     spdlog::info("  SPACE: 暂停/继续");
     spdlog::info("  N: 单帧前进(暂停时)");
     spdlog::info("  Q: 退出");
 
-    // 创建 HSV 调试窗口和滑条
-    cv::namedWindow("HSV Tuning", cv::WINDOW_AUTOSIZE);
-    cv::createTrackbar("H Min", "HSV Tuning", &hMin, 180);
-    cv::createTrackbar("H Max", "HSV Tuning", &hMax, 180);
-    cv::createTrackbar("V Min", "HSV Tuning", &sMin, 255);
-    cv::createTrackbar("S Max", "HSV Tuning", &sMax, 255);
-    cv::createTrackbar("V Min", "HSV Tuning", &vMin, 255);
-    cv::createTrackbar("V Max", "HSV Tuning", &vMax, 255);
+    // 创建控制面板窗口
+    cv::namedWindow("Control Panel", cv::WINDOW_AUTOSIZE);
+
+    // 帧率控制滑条
+    cv::createTrackbar("Target FPS", "Control Panel", &targetFPS, 60);
+    if (targetFPS < 1) targetFPS = 1;  // 确保至少1 FPS
 
     // 确定输入源类型
     bool isImageMode = false;
@@ -473,8 +474,15 @@ int main(int argc, char** argv)
     bool isPaused = false;
     bool nextFrame = false;
 
+    // 帧率控制相关
+    auto lastFrameTime = std::chrono::steady_clock::now();
+
     while (true)
     {
+        // 帧率控制：计算目标帧间隔
+        if (targetFPS < 1) targetFPS = 1;  // 防止除零
+        int targetDelay = 1000 / targetFPS;  // 毫秒
+
         if (isImageMode) {
             // 图片模式：重复使用同一张图片
             frame = staticImage.clone();
@@ -506,9 +514,6 @@ int main(int argc, char** argv)
         cv::Rect roiRect(0, yStart, frame.cols, roiHeight);
         cv::Mat cropped_image = frame(roiRect).clone();
         cv::resize(cropped_image, cropped_image, cv::Size(), 0.5, 0.5);
-
-        cv::Mat hsv_image;
-        cv::cvtColor(cropped_image, hsv_image, cv::COLOR_BGR2HSV);
 
         cv::Mat gray_image;
         cv::cvtColor(cropped_image, gray_image, cv::COLOR_BGR2GRAY);
@@ -561,13 +566,6 @@ int main(int argc, char** argv)
             filterMinAngle2 = 25.0;
             filterMaxAngle2 = 75.0;
             dilateKernelSize = cv::Size(3, 3);
-        }
-        else if (preprocessMode == 3)   // HSV 阈值
-        {
-            cv::inRange(hsv_image, cv::Scalar(hMin, sMin, vMin), cv::Scalar(hMax, sMax, vMax), binary_img);
-            cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
-            cv::morphologyEx(binary_img, binary_img, cv::MORPH_OPEN, kernel);
-            cv::Canny(binary_img, ca, 30, 50);
         }
 
         // Canny边缘检测后的膨胀
@@ -632,7 +630,8 @@ int main(int argc, char** argv)
         cv::imshow("track_result", track_display);
 
         // ========== 按键控制 ==========
-        int delay = isPaused ? 0 : 1;
+        // 使用帧率控制的延迟
+        int delay = isPaused ? 0 : targetDelay;
         int key = cv::waitKey(delay);
 
         if (key == 'q' || key == 'Q')
@@ -641,24 +640,15 @@ int main(int argc, char** argv)
         }
         else if (key == 'm' || key == 'M')
         {
-            preprocessMode = (preprocessMode + 1) % 4;
+            preprocessMode = (preprocessMode + 1) % 3;  // 0-2 三种模式
             spdlog::info("切换预处理模式到: {}", preprocessMode);
         }
         else if (key == 'e' || key == 'E')
         {
             edgeSearchMode = (edgeSearchMode + 1) % 2;
-            std::string mode_name = edgeSearchMode == 0 ? "原始算法" : "改进算法-多候选边界";
-            spdlog::info("========================================");
-            spdlog::info("切换边界搜索模式到: {} ({})", edgeSearchMode, mode_name);
-            spdlog::info("========================================");
-
-            // 在所有窗口上显示提示，持续1秒
-            cv::Mat notification(100, 400, CV_8UC3, cv::Scalar(0, 0, 0));
-            cv::putText(notification, "Edge Mode: " + mode_name, cv::Point(10, 50),
-                       cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
-            cv::imshow("Mode Changed", notification);
-            cv::waitKey(500);  // 显示0.5秒
-            cv::destroyWindow("Mode Changed");
+            spdlog::info("切换边界搜索模式到: {} ({})",
+                         edgeSearchMode,
+                         edgeSearchMode == 0 ? "原始算法" : "改进算法-多候选边界");
         }
         else if (key == ' ')
         {
