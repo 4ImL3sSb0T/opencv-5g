@@ -1322,4 +1322,3 @@ void UI_init(void)
 //    createTrackbar("White_Imageflag", "page_get", &White_Imageflag,4, onTrackbar);
 //    createTrackbar("thre", "page_get", &thre, 5000, onTrackbar);
 }
-
